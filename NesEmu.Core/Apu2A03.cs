@@ -28,6 +28,12 @@ public sealed class Apu2A03
         202, 254, 380, 508, 762, 1016, 2034, 4068
     ];
 
+    private static readonly ushort[] DmcPeriods =
+    [
+        428, 380, 340, 320, 286, 254, 226, 214,
+        190, 160, 142, 128, 106, 84, 72, 54
+    ];
+
     private static readonly byte[][] DutySequences =
     [
         [0, 1, 0, 0, 0, 0, 0, 0],
@@ -49,6 +55,7 @@ public sealed class Apu2A03
     private readonly TriangleChannel _triangle = new();
     private readonly NoiseChannel _noise = new();
     private readonly DmcChannel _dmc = new();
+    private readonly Func<ushort, byte>? _dmcMemoryReader;
     private readonly HighPassFilter _highPass90;
     private readonly HighPassFilter _highPass440;
     private readonly LowPassFilter _lowPass14k;
@@ -60,14 +67,15 @@ public sealed class Apu2A03
     private bool _frameIrqPending;
     private bool _frameIrqClearPending;
 
-    public Apu2A03(int sampleRate)
+    public Apu2A03(int sampleRate, Func<ushort, byte>? dmcMemoryReader = null)
     {
+        _dmcMemoryReader = dmcMemoryReader;
         _highPass90 = new HighPassFilter(90, sampleRate);
         _highPass440 = new HighPassFilter(440, sampleRate);
         _lowPass14k = new LowPassFilter(14_000, sampleRate);
     }
 
-    public bool IrqPending => _frameIrqPending;
+    public bool IrqPending => _frameIrqPending || _dmc.IrqPending;
 
     public void Reset()
     {
@@ -106,6 +114,8 @@ public sealed class Apu2A03
             _noise.ClockTimer();
         }
 
+        _dmc.Clock(_dmcMemoryReader);
+
         ClockFrameSequencer();
     }
 
@@ -120,13 +130,14 @@ public sealed class Apu2A03
         var pulse2 = _pulse2.Output;
         var triangle = _triangle.Output;
         var noise = _noise.Output;
+        var dmc = _dmc.Output;
 
         var pulseSum = pulse1 + pulse2;
         var pulseOut = pulseSum == 0
             ? 0.0
             : 95.88 / ((8128.0 / pulseSum) + 100.0);
 
-        var tndInput = (triangle / 8227.0) + (noise / 12241.0);
+        var tndInput = (triangle / 8227.0) + (noise / 12241.0) + (dmc / 22638.0);
         var tndOut = tndInput == 0
             ? 0.0
             : 159.79 / ((1.0 / tndInput) + 100.0);
@@ -210,6 +221,16 @@ public sealed class Apu2A03
             status |= 0x40;
         }
 
+        if (_dmc.IrqPending)
+        {
+            status |= 0x80;
+        }
+
+        if (_dmc.HasBytesRemaining)
+        {
+            status |= 0x10;
+        }
+
         _frameIrqClearPending = true;
         return status;
     }
@@ -287,6 +308,7 @@ public sealed class Apu2A03
         _pulse2.Enabled = (value & 0x02) != 0;
         _triangle.Enabled = (value & 0x04) != 0;
         _noise.Enabled = (value & 0x08) != 0;
+        _dmc.ClearIrq();
         _dmc.SetEnabled((value & 0x10) != 0);
     }
 
@@ -908,20 +930,36 @@ public sealed class Apu2A03
     private sealed class DmcChannel
     {
         private bool _enabled;
+        private bool _irqEnabled;
+        private bool _irqPending;
         private bool _loopFlag;
+        private bool _silenceFlag = true;
         private byte _rateIndex;
         private byte _outputLevel;
         private byte _sampleAddress;
         private byte _sampleLength;
+        private ushort _currentAddress;
+        private ushort _bytesRemaining;
+        private ushort _timerCounter = DmcPeriods[0];
+        private byte _shiftRegister;
+        private byte _bitsRemaining = 8;
+        private byte _sampleBuffer;
+        private bool _sampleBufferEmpty = true;
         private int _triggerVersion;
 
         public bool Enabled => _enabled;
 
-        public bool IsActive => _enabled || _outputLevel > 0;
+        public bool IsActive => _enabled || HasBytesRemaining || !_sampleBufferEmpty || !_silenceFlag || _outputLevel > 0;
+
+        public bool HasBytesRemaining => _bytesRemaining > 0;
+
+        public bool IrqPending => _irqPending;
 
         public int RateIndex => _rateIndex;
 
         public int OutputLevel => _outputLevel;
+
+        public int Output => _outputLevel;
 
         public int SampleLength => _sampleLength;
 
@@ -930,18 +968,33 @@ public sealed class Apu2A03
         public void Reset()
         {
             _enabled = false;
+            _irqEnabled = false;
+            _irqPending = false;
             _loopFlag = false;
+            _silenceFlag = true;
             _rateIndex = 0;
             _outputLevel = 0;
             _sampleAddress = 0;
             _sampleLength = 0;
+            _currentAddress = 0xC000;
+            _bytesRemaining = 0;
+            _timerCounter = DmcPeriods[0];
+            _shiftRegister = 0;
+            _bitsRemaining = 8;
+            _sampleBuffer = 0;
+            _sampleBufferEmpty = true;
             _triggerVersion = 0;
         }
 
         public void WriteControl(byte value)
         {
+            _irqEnabled = (value & 0x80) != 0;
             _loopFlag = (value & 0x40) != 0;
             _rateIndex = (byte)(value & 0x0F);
+            if (!_irqEnabled)
+            {
+                _irqPending = false;
+            }
         }
 
         public void WriteDirectLoad(byte value)
@@ -967,12 +1020,117 @@ public sealed class Apu2A03
 
         public void SetEnabled(bool enabled)
         {
+            _irqPending = false;
+
+            if (!enabled)
+            {
+                _enabled = false;
+                _bytesRemaining = 0;
+                return;
+            }
+
             if (!_enabled && enabled && (_sampleLength > 0 || _outputLevel > 0 || _loopFlag))
             {
                 _triggerVersion++;
             }
 
-            _enabled = enabled;
+            _enabled = true;
+            if (_bytesRemaining == 0)
+            {
+                RestartSample();
+            }
+        }
+
+        public void ClearIrq()
+        {
+            _irqPending = false;
+        }
+
+        public void Clock(Func<ushort, byte>? memoryReader)
+        {
+            FillSampleBuffer(memoryReader);
+
+            if (_timerCounter == 0)
+            {
+                _timerCounter = DmcPeriods[_rateIndex];
+                ClockOutputUnit();
+                return;
+            }
+
+            _timerCounter--;
+        }
+
+        private void RestartSample()
+        {
+            _currentAddress = (ushort)(0xC000 | (_sampleAddress << 6));
+            _bytesRemaining = (ushort)((_sampleLength << 4) | 0x0001);
+        }
+
+        private void FillSampleBuffer(Func<ushort, byte>? memoryReader)
+        {
+            if (!_sampleBufferEmpty || _bytesRemaining == 0)
+            {
+                return;
+            }
+
+            _sampleBuffer = memoryReader is null ? (byte)0 : memoryReader(_currentAddress);
+            _sampleBufferEmpty = false;
+            _currentAddress = _currentAddress == 0xFFFF ? (ushort)0x8000 : (ushort)(_currentAddress + 1);
+            _bytesRemaining--;
+
+            if (_bytesRemaining != 0)
+            {
+                return;
+            }
+
+            if (_loopFlag)
+            {
+                RestartSample();
+            }
+            else if (_irqEnabled)
+            {
+                _irqPending = true;
+            }
+        }
+
+        private void ClockOutputUnit()
+        {
+            if (!_silenceFlag)
+            {
+                if ((_shiftRegister & 0x01) != 0)
+                {
+                    if (_outputLevel <= 125)
+                    {
+                        _outputLevel += 2;
+                    }
+                }
+                else if (_outputLevel >= 2)
+                {
+                    _outputLevel -= 2;
+                }
+            }
+
+            _shiftRegister >>= 1;
+            if (_bitsRemaining > 0)
+            {
+                _bitsRemaining--;
+            }
+
+            if (_bitsRemaining != 0)
+            {
+                return;
+            }
+
+            _bitsRemaining = 8;
+            if (_sampleBufferEmpty)
+            {
+                _silenceFlag = true;
+                return;
+            }
+
+            _silenceFlag = false;
+            _shiftRegister = _sampleBuffer;
+            _sampleBufferEmpty = true;
         }
     }
 }

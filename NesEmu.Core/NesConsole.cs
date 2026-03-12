@@ -31,7 +31,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     {
         _cartridge = cartridge;
         _ppu = new Ppu2C02(cartridge);
-        _apu = new Apu2A03(AudioSampleRate);
+        _apu = new Apu2A03(AudioSampleRate, ReadDmcSampleByte);
         _cpu = new Cpu6502(this);
         Reset();
     }
@@ -262,6 +262,39 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     {
         var status = _apu.ReadStatus();
         return (byte)((status & 0xDF) | (_cpuOpenBus & 0x20));
+    }
+
+    private byte ReadDmcSampleByte(ushort address)
+    {
+        address &= 0xFFFF;
+        byte value;
+        switch (address)
+        {
+            case <= 0x1FFF:
+                value = _cpuRam[address & 0x07FF];
+                break;
+            case <= 0x3FFF:
+                value = _ppu.CpuRead((ushort)(0x2000 | (address & 0x0007)));
+                break;
+            case 0x4015:
+                value = ReadApuStatus();
+                break;
+            case 0x4016:
+                value = _controller1.Read(_cpuOpenBus, consecutiveRead: false);
+                break;
+            case 0x4017:
+                value = _controller2.Read(_cpuOpenBus, consecutiveRead: false);
+                break;
+            case >= 0x6000:
+                value = _cartridge.CpuRead(address);
+                break;
+            default:
+                value = _cpuOpenBus;
+                break;
+        }
+
+        _cpuOpenBus = value;
+        return value;
     }
 
     private bool IsConsecutiveControllerRead(ushort address) => _lastCpuBusWasRead && _lastCpuBusAddress == address;
