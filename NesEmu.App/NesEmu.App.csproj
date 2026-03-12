@@ -16,8 +16,8 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.12" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.3.12" />
     <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="ShadUI" Version="0.1.6" />
   </ItemGroup>
 
 </Project>

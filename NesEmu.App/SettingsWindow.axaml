@@ -1,467 +1,592 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        x:Class="NesEmu.App.SettingsWindow"
-        Width="820"
-        Height="760"
-        MinWidth="760"
-        MinHeight="680"
-        Background="#1F2328"
-        Foreground="#F1F1F1"
-        FontFamily="Segoe UI"
-        ShowInTaskbar="False"
-        Title="Settings"
-        WindowStartupLocation="CenterOwner">
-  <Window.Styles>
-    <Style Selector="Border.section">
-      <Setter Property="Background" Value="#262B31" />
-      <Setter Property="BorderBrush" Value="#373E46" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
-      <Setter Property="Padding" Value="16" />
-    </Style>
+<shadui:Window xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+               xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+               xmlns:shadui="clr-namespace:ShadUI;assembly=ShadUI"
+               mc:Ignorable="d"
+               x:Class="NesEmu.App.SettingsWindow"
+               Width="1040"
+               Height="820"
+               MinWidth="900"
+               MinHeight="720"
+               Title="Settings"
+               TitleFontWeight="SemiBold"
+               ShowInTaskbar="False"
+               WindowStartupLocation="CenterOwner">
+  <shadui:Window.Styles>
     <Style Selector="TextBlock.help">
       <Setter Property="Opacity" Value="0.72" />
       <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
     <Style Selector="TextBlock.group-title">
-      <Setter Property="FontSize" Value="15" />
+      <Setter Property="FontSize" Value="16" />
       <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
     <Style Selector="ComboBox.setting-combo">
-      <Setter Property="MinWidth" Value="210" />
+      <Setter Property="MinWidth" Value="220" />
     </Style>
     <Style Selector="Button.key-binding">
-      <Setter Property="MinWidth" Value="210" />
+      <Setter Property="MinWidth" Value="200" />
+      <Setter Property="Padding" Value="12,8" />
       <Setter Property="HorizontalContentAlignment" Value="Left" />
-      <Setter Property="Padding" Value="10,6" />
     </Style>
     <Style Selector="Slider.channel-slider">
       <Setter Property="Minimum" Value="0" />
       <Setter Property="Maximum" Value="200" />
-      <Setter Property="Width" Value="150" />
+      <Setter Property="Width" Value="160" />
     </Style>
-  </Window.Styles>
+    <Style Selector="Border.section">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundColor}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="20" />
+      <Setter Property="Padding" Value="18" />
+    </Style>
+    <Style Selector="shadui|SidebarItem">
+      <Setter Property="Margin" Value="0,0,0,4" />
+    </Style>
+  </shadui:Window.Styles>
 
-  <Grid RowDefinitions="Auto,*,Auto">
+  <shadui:Window.LogoContent>
+    <Border Margin="12,8,0,8"
+            Padding="10,4"
+            CornerRadius="999"
+            Background="{DynamicResource PrimaryColor}">
+      <TextBlock FontSize="11"
+                 FontWeight="Bold"
+                 Foreground="{DynamicResource PrimaryForegroundColor}"
+                 Text="CFG" />
+    </Border>
+  </shadui:Window.LogoContent>
+
+  <Grid RowDefinitions="Auto,*,Auto"
+        Margin="24,24,24,20">
     <Border Grid.Row="0"
-            Background="#2A3037"
-            BorderBrush="#363D45"
-            BorderThickness="0,0,0,1"
-            Padding="18,14">
+            Classes="section"
+            Padding="20,16"
+            Margin="0,0,0,18">
       <StackPanel Spacing="4">
-        <TextBlock FontSize="20"
+        <TextBlock FontSize="24"
                    FontWeight="SemiBold"
                    Text="Settings" />
         <TextBlock Classes="help"
-                   Text="Audio, MIDI, keyboard and controller settings are applied while the emulator is running." />
+                   Text="Audio, MIDI and input preferences for the current session." />
       </StackPanel>
     </Border>
 
-    <TabControl Grid.Row="1"
-                Margin="16">
-      <TabItem Header="Audio">
-        <ScrollViewer>
-          <StackPanel Margin="0,10,0,0"
-                      Spacing="16">
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Playback" />
-                <TextBlock Classes="help"
-                           Text="Lower latency feels tighter, but if you hear pops or dropouts you should raise it." />
-
-                <Grid ColumnDefinitions="150,*,Auto"
-                      RowDefinitions="Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <TextBlock VerticalAlignment="Center" Text="Output latency" />
-                  <Slider x:Name="AudioLatencySlider"
-                          Grid.Column="1"
-                          Minimum="40"
-                          Maximum="240"
-                          Width="240"
-                          ValueChanged="AudioSlider_OnValueChanged" />
-                  <TextBlock x:Name="AudioLatencyText"
-                             Grid.Column="2"
-                             Width="60"
-                             VerticalAlignment="Center"
-                             TextAlignment="Right" />
-
-                  <TextBlock Grid.Row="1"
-                             VerticalAlignment="Center"
-                             Text="Master volume" />
-                  <Slider x:Name="AudioVolumeSlider"
-                          Grid.Row="1"
-                          Grid.Column="1"
-                          Minimum="0"
-                          Maximum="200"
-                          Width="240"
-                          ValueChanged="AudioSlider_OnValueChanged" />
-                  <TextBlock x:Name="AudioVolumeText"
-                             Grid.Row="1"
-                             Grid.Column="2"
-                             Width="60"
-                             VerticalAlignment="Center"
-                             TextAlignment="Right" />
-                </Grid>
-
-                <TextBlock Classes="help"
-                           Text="The MIDI conversion follows the audio latency automatically. Use the MIDI sync offset only for final fine-tuning." />
-              </StackPanel>
-            </Border>
+    <Grid Grid.Row="1"
+          ColumnDefinitions="220,18,*">
+      <Border Classes="section"
+              Grid.Column="0"
+              Padding="12">
+        <shadui:Sidebar Expanded="True"
+                        Width="196"
+                        Background="Transparent">
+          <StackPanel Spacing="4">
+            <shadui:SidebarItem x:Name="AudioSectionItem"
+                                Tag="Audio"
+                                Content="Audio"
+                                IsChecked="True"
+                                Checked="SettingsSectionItem_OnChecked" />
+            <shadui:SidebarItem x:Name="ControlsSectionItem"
+                                Tag="Controls"
+                                Content="Controls"
+                                Checked="SettingsSectionItem_OnChecked" />
+            <shadui:SidebarItem x:Name="MidiSectionItem"
+                                Tag="MIDI"
+                                Content="MIDI"
+                                Checked="SettingsSectionItem_OnChecked" />
           </StackPanel>
-        </ScrollViewer>
-      </TabItem>
+        </shadui:Sidebar>
+      </Border>
 
-      <TabItem Header="Controls">
-        <ScrollViewer>
-          <StackPanel Margin="0,10,0,0"
-                      Spacing="16">
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Controller Selection" />
-                <Grid ColumnDefinitions="150,*"
-                      ColumnSpacing="12">
-                  <TextBlock VerticalAlignment="Center" Text="Active controller" />
-                  <ComboBox x:Name="ControllerDeviceComboBox"
+      <Border Classes="section"
+              Grid.Column="2"
+              Padding="0">
+        <Grid>
+          <ScrollViewer x:Name="AudioScrollViewer"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20"
+                        Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock FontSize="24"
+                           FontWeight="SemiBold"
+                           Text="Audio" />
+                <TextBlock Classes="help"
+                           Text="Playback latency and volume for the emulator output." />
+              </StackPanel>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Playback" />
+
+                  <Grid ColumnDefinitions="170,*,Auto"
+                        RowDefinitions="Auto,Auto"
+                        ColumnSpacing="16"
+                        RowSpacing="16">
+                    <TextBlock VerticalAlignment="Center" Text="Output latency" />
+                    <Slider x:Name="AudioLatencySlider"
                             Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="ControllerDeviceComboBox_OnSelectionChanged" />
-                </Grid>
-                <TextBlock Classes="help"
-                           Text="Keyboard remains active. The selected controller is added on top of the keyboard mapping." />
-              </StackPanel>
-            </Border>
+                            Minimum="40"
+                            Maximum="240"
+                            ValueChanged="AudioSlider_OnValueChanged" />
+                    <TextBlock x:Name="AudioLatencyText"
+                               Grid.Column="2"
+                               Width="68"
+                               VerticalAlignment="Center"
+                               TextAlignment="Right" />
 
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Keyboard Mapping" />
-                <TextBlock x:Name="KeyboardCaptureText"
-                           Classes="help"
-                           Text="Click a command, then press the key you want to assign." />
-                <Grid ColumnDefinitions="120,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <TextBlock VerticalAlignment="Center" Text="A" />
-                  <Button x:Name="KeyboardAButton"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="A"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="B" />
-                  <Button x:Name="KeyboardBButton"
-                          Grid.Row="1"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="B"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Select" />
-                  <Button x:Name="KeyboardSelectButton"
-                          Grid.Row="2"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Select"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Start" />
-                  <Button x:Name="KeyboardStartButton"
-                          Grid.Row="3"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Start"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Up" />
-                  <Button x:Name="KeyboardUpButton"
-                          Grid.Row="4"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Up"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Down" />
-                  <Button x:Name="KeyboardDownButton"
-                          Grid.Row="5"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Down"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Left" />
-                  <Button x:Name="KeyboardLeftButton"
-                          Grid.Row="6"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Left"
-                          Click="KeyboardBindingButton_OnClick" />
-                  <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Right" />
-                  <Button x:Name="KeyboardRightButton"
-                          Grid.Row="7"
-                          Grid.Column="1"
-                          Classes="key-binding"
-                          Tag="Right"
-                          Click="KeyboardBindingButton_OnClick" />
-                </Grid>
-              </StackPanel>
-            </Border>
-
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Controller Mapping" />
-                <Grid ColumnDefinitions="120,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <TextBlock VerticalAlignment="Center" Text="A" />
-                  <ComboBox x:Name="ControllerAComboBox" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="B" />
-                  <ComboBox x:Name="ControllerBComboBox" Grid.Row="1" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Select" />
-                  <ComboBox x:Name="ControllerSelectComboBox" Grid.Row="2" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Start" />
-                  <ComboBox x:Name="ControllerStartComboBox" Grid.Row="3" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Up" />
-                  <ComboBox x:Name="ControllerUpComboBox" Grid.Row="4" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Down" />
-                  <ComboBox x:Name="ControllerDownComboBox" Grid.Row="5" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Left" />
-                  <ComboBox x:Name="ControllerLeftComboBox" Grid.Row="6" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                  <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Right" />
-                  <ComboBox x:Name="ControllerRightComboBox" Grid.Row="7" Grid.Column="1" Classes="setting-combo" SelectionChanged="InputSelection_OnChanged" />
-                </Grid>
-                <TextBlock Classes="help"
-                           Text="For raw controllers, generic raw buttons and axes are available in addition to the usual South / Cross, West / Square, D-Pad and stick directions." />
-              </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-
-      <TabItem Header="MIDI">
-        <ScrollViewer>
-          <StackPanel Margin="0,10,0,0"
-                      Spacing="16">
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Output" />
-                <Grid ColumnDefinitions="140,*"
-                      RowDefinitions="Auto,Auto,Auto,Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <CheckBox x:Name="EnableMidiCheckBox"
-                            Grid.Row="0"
-                            Grid.ColumnSpan="2"
-                            Content="Enable real-time MIDI output"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-
-                  <TextBlock Grid.Row="1"
-                             VerticalAlignment="Center"
-                             Text="Device" />
-                  <ComboBox x:Name="OutputDeviceComboBox"
+                    <TextBlock Grid.Row="1"
+                               VerticalAlignment="Center"
+                               Text="Master volume" />
+                    <Slider x:Name="AudioVolumeSlider"
                             Grid.Row="1"
                             Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-
-                  <CheckBox x:Name="MusicOnlyCheckBox"
-                            Grid.Row="2"
-                            Grid.ColumnSpan="2"
-                            Content="Try to keep only the music and filter short sound effects"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-
-                  <CheckBox x:Name="PercussionCheckBox"
-                            Grid.Row="3"
-                            Grid.ColumnSpan="2"
-                            Content="Send Noise and DMC as percussion"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-
-                  <Grid Grid.Row="4"
-                        Grid.ColumnSpan="2"
-                        ColumnDefinitions="140,*,Auto"
-                        ColumnSpacing="12">
-                    <TextBlock VerticalAlignment="Center" Text="Sync offset" />
-                    <Slider x:Name="MidiSyncOffsetSlider"
-                            Grid.Column="1"
-                            Minimum="-40"
-                            Maximum="40"
-                            Width="220"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="MidiSyncOffsetText"
+                            Minimum="0"
+                            Maximum="200"
+                            ValueChanged="AudioSlider_OnValueChanged" />
+                    <TextBlock x:Name="AudioVolumeText"
+                               Grid.Row="1"
                                Grid.Column="2"
-                               Width="64"
+                               Width="68"
                                VerticalAlignment="Center"
                                TextAlignment="Right" />
                   </Grid>
-                </Grid>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+
+          <ScrollViewer x:Name="ControlsScrollViewer"
+                        IsVisible="False"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20"
+                        Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock FontSize="24"
+                           FontWeight="SemiBold"
+                           Text="Controls" />
+                <TextBlock Classes="help"
+                           Text="Keyboard bindings and controller mapping." />
               </StackPanel>
-            </Border>
 
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Melodic Channels" />
-                <Grid ColumnDefinitions="Auto,*,Auto"
-                      RowDefinitions="Auto,Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <CheckBox x:Name="Pulse1EnabledCheckBox"
-                            Grid.Row="0"
-                            Content="Pulse 1"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-                  <ComboBox x:Name="Pulse1ProgramComboBox"
-                            Grid.Row="0"
-                            Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-                  <StackPanel Grid.Row="0"
-                              Grid.Column="2"
-                              Orientation="Horizontal"
-                              Spacing="8">
-                    <Slider x:Name="Pulse1VolumeSlider"
-                            Classes="channel-slider"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="Pulse1VolumeText"
-                               Width="44"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-                  </StackPanel>
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Controller" />
 
-                  <CheckBox x:Name="Pulse2EnabledCheckBox"
-                            Grid.Row="1"
-                            Content="Pulse 2"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-                  <ComboBox x:Name="Pulse2ProgramComboBox"
-                            Grid.Row="1"
-                            Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-                  <StackPanel Grid.Row="1"
-                              Grid.Column="2"
-                              Orientation="Horizontal"
-                              Spacing="8">
-                    <Slider x:Name="Pulse2VolumeSlider"
-                            Classes="channel-slider"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="Pulse2VolumeText"
-                               Width="44"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-                  </StackPanel>
+                  <Grid ColumnDefinitions="170,*"
+                        ColumnSpacing="16">
+                    <TextBlock VerticalAlignment="Center" Text="Active controller" />
+                    <ComboBox x:Name="ControllerDeviceComboBox"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="ControllerDeviceComboBox_OnSelectionChanged" />
+                  </Grid>
+                </StackPanel>
+              </Border>
 
-                  <CheckBox x:Name="TriangleEnabledCheckBox"
-                            Grid.Row="2"
-                            Content="Triangle"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-                  <ComboBox x:Name="TriangleProgramComboBox"
-                            Grid.Row="2"
-                            Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-                  <StackPanel Grid.Row="2"
-                              Grid.Column="2"
-                              Orientation="Horizontal"
-                              Spacing="8">
-                    <Slider x:Name="TriangleVolumeSlider"
-                            Classes="channel-slider"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="TriangleVolumeText"
-                               Width="44"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-                  </StackPanel>
-                </Grid>
-              </StackPanel>
-            </Border>
-
-            <Border Classes="section">
-              <StackPanel Spacing="12">
-                <TextBlock Classes="group-title" Text="Percussion" />
-                <Grid ColumnDefinitions="Auto,*,Auto"
-                      RowDefinitions="Auto,Auto,Auto"
-                      ColumnSpacing="12"
-                      RowSpacing="12">
-                  <CheckBox x:Name="NoiseEnabledCheckBox"
-                            Grid.Row="0"
-                            Content="Noise"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-                  <ComboBox x:Name="NoiseDrumComboBox"
-                            Grid.Row="0"
-                            Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-                  <StackPanel Grid.Row="0"
-                              Grid.Column="2"
-                              Orientation="Horizontal"
-                              Spacing="8">
-                    <Slider x:Name="NoiseVolumeSlider"
-                            Classes="channel-slider"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="NoiseVolumeText"
-                               Width="44"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-                  </StackPanel>
-
-                  <CheckBox x:Name="DmcEnabledCheckBox"
-                            Grid.Row="1"
-                            Content="DMC"
-                            Checked="MidiToggle_OnChanged"
-                            Unchecked="MidiToggle_OnChanged" />
-                  <ComboBox x:Name="DmcDrumComboBox"
-                            Grid.Row="1"
-                            Grid.Column="1"
-                            Classes="setting-combo"
-                            SelectionChanged="MidiSelection_OnChanged" />
-                  <StackPanel Grid.Row="1"
-                              Grid.Column="2"
-                              Orientation="Horizontal"
-                              Spacing="8">
-                    <Slider x:Name="DmcVolumeSlider"
-                            Classes="channel-slider"
-                            ValueChanged="MidiSlider_OnValueChanged" />
-                    <TextBlock x:Name="DmcVolumeText"
-                               Width="44"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-                  </StackPanel>
-
-                  <TextBlock Grid.Row="2"
-                             Grid.ColumnSpan="3"
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Keyboard bindings" />
+                  <TextBlock x:Name="KeyboardCaptureText"
                              Classes="help"
-                             Text="Percussion and SFX separation is heuristic. Lower the percussion levels if Noise or DMC feel too aggressive on your keyboard." />
-                </Grid>
+                             Text="Click a command, then press the key you want to assign." />
+
+                  <Grid ColumnDefinitions="Auto,*,Auto,*"
+                        RowDefinitions="Auto,Auto,Auto,Auto"
+                        ColumnSpacing="14"
+                        RowSpacing="14">
+                    <TextBlock VerticalAlignment="Center" Text="A" />
+                    <Button x:Name="KeyboardAButton"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="A"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="B" />
+                    <Button x:Name="KeyboardBButton"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="B"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="1"
+                               VerticalAlignment="Center"
+                               Text="Select" />
+                    <Button x:Name="KeyboardSelectButton"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Select"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="1"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Start" />
+                    <Button x:Name="KeyboardStartButton"
+                            Grid.Row="1"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Start"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="2"
+                               VerticalAlignment="Center"
+                               Text="Up" />
+                    <Button x:Name="KeyboardUpButton"
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Up"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="2"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Down" />
+                    <Button x:Name="KeyboardDownButton"
+                            Grid.Row="2"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Down"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="3"
+                               VerticalAlignment="Center"
+                               Text="Left" />
+                    <Button x:Name="KeyboardLeftButton"
+                            Grid.Row="3"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Left"
+                            Click="KeyboardBindingButton_OnClick" />
+
+                    <TextBlock Grid.Row="3"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Right" />
+                    <Button x:Name="KeyboardRightButton"
+                            Grid.Row="3"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Right"
+                            Click="KeyboardBindingButton_OnClick" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Controller bindings" />
+
+                  <Grid ColumnDefinitions="*,*"
+                        RowDefinitions="Auto,Auto,Auto,Auto"
+                        ColumnSpacing="16"
+                        RowSpacing="16">
+                    <StackPanel Spacing="8">
+                      <TextBlock Text="A" />
+                      <ComboBox x:Name="ControllerAComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1"
+                                Spacing="8">
+                      <TextBlock Text="B" />
+                      <ComboBox x:Name="ControllerBComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1"
+                                Spacing="8">
+                      <TextBlock Text="Select" />
+                      <ComboBox x:Name="ControllerSelectComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="1"
+                                Spacing="8">
+                      <TextBlock Text="Start" />
+                      <ComboBox x:Name="ControllerStartComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2"
+                                Spacing="8">
+                      <TextBlock Text="Up" />
+                      <ComboBox x:Name="ControllerUpComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="2"
+                                Grid.Column="1"
+                                Spacing="8">
+                      <TextBlock Text="Down" />
+                      <ComboBox x:Name="ControllerDownComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3"
+                                Spacing="8">
+                      <TextBlock Text="Left" />
+                      <ComboBox x:Name="ControllerLeftComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+
+                    <StackPanel Grid.Row="3"
+                                Grid.Column="1"
+                                Spacing="8">
+                      <TextBlock Text="Right" />
+                      <ComboBox x:Name="ControllerRightComboBox"
+                                Classes="setting-combo"
+                                SelectionChanged="InputSelection_OnChanged" />
+                    </StackPanel>
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+
+          <ScrollViewer x:Name="MidiScrollViewer"
+                        IsVisible="False"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20"
+                        Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock FontSize="24"
+                           FontWeight="SemiBold"
+                           Text="MIDI" />
+                <TextBlock Classes="help"
+                           Text="Real-time MIDI output and channel mapping." />
               </StackPanel>
-            </Border>
-          </StackPanel>
-        </ScrollViewer>
-      </TabItem>
-    </TabControl>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Output" />
+
+                  <Grid ColumnDefinitions="170,*,Auto"
+                        RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                        ColumnSpacing="16"
+                        RowSpacing="14">
+                    <CheckBox x:Name="EnableMidiCheckBox"
+                              Grid.ColumnSpan="3"
+                              Content="Enable real-time MIDI output"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+
+                    <TextBlock Grid.Row="1"
+                               VerticalAlignment="Center"
+                               Text="Device" />
+                    <ComboBox x:Name="OutputDeviceComboBox"
+                              Grid.Row="1"
+                              Grid.Column="1"
+                              Grid.ColumnSpan="2"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+
+                    <CheckBox x:Name="MusicOnlyCheckBox"
+                              Grid.Row="2"
+                              Grid.ColumnSpan="3"
+                              Content="Filter short sound effects"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+
+                    <CheckBox x:Name="PercussionCheckBox"
+                              Grid.Row="3"
+                              Grid.ColumnSpan="3"
+                              Content="Send Noise and DMC as percussion"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+
+                    <TextBlock Grid.Row="4"
+                               VerticalAlignment="Center"
+                               Text="Sync offset" />
+                    <Slider x:Name="MidiSyncOffsetSlider"
+                            Grid.Row="4"
+                            Grid.Column="1"
+                            Minimum="-40"
+                            Maximum="40"
+                            ValueChanged="MidiSlider_OnValueChanged" />
+                    <TextBlock x:Name="MidiSyncOffsetText"
+                               Grid.Row="4"
+                               Grid.Column="2"
+                               Width="72"
+                               VerticalAlignment="Center"
+                               TextAlignment="Right" />
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Melodic channels" />
+
+                  <Grid ColumnDefinitions="Auto,*,Auto"
+                        RowDefinitions="Auto,Auto,Auto"
+                        ColumnSpacing="16"
+                        RowSpacing="14">
+                    <CheckBox x:Name="Pulse1EnabledCheckBox"
+                              Content="Pulse 1"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+                    <ComboBox x:Name="Pulse1ProgramComboBox"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                      <Slider x:Name="Pulse1VolumeSlider"
+                              Classes="channel-slider"
+                              ValueChanged="MidiSlider_OnValueChanged" />
+                      <TextBlock x:Name="Pulse1VolumeText"
+                                 Width="44"
+                                 VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </StackPanel>
+
+                    <CheckBox x:Name="Pulse2EnabledCheckBox"
+                              Grid.Row="1"
+                              Content="Pulse 2"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+                    <ComboBox x:Name="Pulse2ProgramComboBox"
+                              Grid.Row="1"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                      <Slider x:Name="Pulse2VolumeSlider"
+                              Classes="channel-slider"
+                              ValueChanged="MidiSlider_OnValueChanged" />
+                      <TextBlock x:Name="Pulse2VolumeText"
+                                 Width="44"
+                                 VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </StackPanel>
+
+                    <CheckBox x:Name="TriangleEnabledCheckBox"
+                              Grid.Row="2"
+                              Content="Triangle"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+                    <ComboBox x:Name="TriangleProgramComboBox"
+                              Grid.Row="2"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+                    <StackPanel Grid.Row="2"
+                                Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                      <Slider x:Name="TriangleVolumeSlider"
+                              Classes="channel-slider"
+                              ValueChanged="MidiSlider_OnValueChanged" />
+                      <TextBlock x:Name="TriangleVolumeText"
+                                 Width="44"
+                                 VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </StackPanel>
+                  </Grid>
+                </StackPanel>
+              </Border>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Percussion" />
+
+                  <Grid ColumnDefinitions="Auto,*,Auto"
+                        RowDefinitions="Auto,Auto"
+                        ColumnSpacing="16"
+                        RowSpacing="14">
+                    <CheckBox x:Name="NoiseEnabledCheckBox"
+                              Content="Noise"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+                    <ComboBox x:Name="NoiseDrumComboBox"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+                    <StackPanel Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                      <Slider x:Name="NoiseVolumeSlider"
+                              Classes="channel-slider"
+                              ValueChanged="MidiSlider_OnValueChanged" />
+                      <TextBlock x:Name="NoiseVolumeText"
+                                 Width="44"
+                                 VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </StackPanel>
+
+                    <CheckBox x:Name="DmcEnabledCheckBox"
+                              Grid.Row="1"
+                              Content="DMC"
+                              Checked="MidiToggle_OnChanged"
+                              Unchecked="MidiToggle_OnChanged" />
+                    <ComboBox x:Name="DmcDrumComboBox"
+                              Grid.Row="1"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="MidiSelection_OnChanged" />
+                    <StackPanel Grid.Row="1"
+                                Grid.Column="2"
+                                Orientation="Horizontal"
+                                Spacing="10">
+                      <Slider x:Name="DmcVolumeSlider"
+                              Classes="channel-slider"
+                              ValueChanged="MidiSlider_OnValueChanged" />
+                      <TextBlock x:Name="DmcVolumeText"
+                                 Width="44"
+                                 VerticalAlignment="Center"
+                                 TextAlignment="Right" />
+                    </StackPanel>
+                  </Grid>
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+        </Grid>
+      </Border>
+    </Grid>
 
     <Border Grid.Row="2"
-            Background="#2A3037"
-            BorderBrush="#363D45"
-            BorderThickness="0,1,0,0"
-            Padding="16,12">
+            Classes="section"
+            Padding="16,12"
+            Margin="0,18,0,0">
       <Grid ColumnDefinitions="*,Auto,Auto"
             ColumnSpacing="10">
         <TextBlock VerticalAlignment="Center"
                    Classes="help"
-                   Text="Settings are applied immediately." />
+                   Text="Changes are applied immediately." />
         <Button Grid.Column="1"
-                MinWidth="110"
-                Content="Restore Defaults"
+                MinWidth="132"
+                Classes="Outline"
+                Content="Restore defaults"
                 Click="RestoreDefaultsButton_OnClick" />
         <Button Grid.Column="2"
-                MinWidth="96"
+                MinWidth="104"
+                Classes="Primary"
                 IsDefault="True"
                 Content="Close"
                 Click="CloseButton_OnClick" />
       </Grid>
     </Border>
   </Grid>
-</Window>
+</shadui:Window>

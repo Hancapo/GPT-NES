@@ -10,10 +10,11 @@ using Avalonia.Platform;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using NesEmu.Core;
+using ShadWindow = ShadUI.Window;
 
 namespace NesEmu.App;
 
-public partial class MainWindow : Window
+public partial class MainWindow : ShadWindow
 {
     private readonly InputStateSource _inputState = new();
     private readonly MidiOutputService _midiOutput = new();
@@ -25,6 +26,8 @@ public partial class MainWindow : Window
     private readonly Stopwatch _fpsStopwatch = Stopwatch.StartNew();
 
     private SettingsWindow? _settingsWindow;
+    private long _frameEpoch;
+    private long _latestFrameEpoch;
     private bool _frameDirty;
     private int _uiFrameScheduled;
     private int _fpsFrameCount;
@@ -235,23 +238,30 @@ public partial class MainWindow : Window
 
     private void OnFrameReady(uint[] frame)
     {
+        if (_emulator.IsStopped)
+        {
+            return;
+        }
+
+        var epoch = Interlocked.Read(ref _frameEpoch);
         lock (_frameSync)
         {
             Array.Copy(frame, _latestFrame, frame.Length);
             _frameDirty = true;
+            _latestFrameEpoch = epoch;
         }
 
         if (Interlocked.Exchange(ref _uiFrameScheduled, 1) == 0)
         {
-            Dispatcher.UIThread.Post(UploadPendingFrame, DispatcherPriority.Normal);
+            Dispatcher.UIThread.Post(() => UploadPendingFrame(epoch), DispatcherPriority.Normal);
         }
     }
 
-    private void UploadPendingFrame()
+    private void UploadPendingFrame(long epoch)
     {
         lock (_frameSync)
         {
-            if (!_frameDirty)
+            if (!_frameDirty || epoch != Interlocked.Read(ref _frameEpoch) || _latestFrameEpoch != epoch)
             {
                 Interlocked.Exchange(ref _uiFrameScheduled, 0);
                 return;
@@ -277,7 +287,7 @@ public partial class MainWindow : Window
             _lastFps = _fpsFrameCount / elapsed;
             _fpsFrameCount = 0;
             _fpsStopwatch.Restart();
-            FpsText.Text = $"FPS: {_lastFps:0.0}";
+            FpsText.Text = $"{_lastFps:0.0} FPS";
         }
 
         GameImage.InvalidateVisual();
@@ -288,9 +298,12 @@ public partial class MainWindow : Window
 
         lock (_frameSync)
         {
-            if (_frameDirty && Interlocked.Exchange(ref _uiFrameScheduled, 1) == 0)
+            var currentEpoch = Interlocked.Read(ref _frameEpoch);
+            if (_frameDirty
+                && _latestFrameEpoch == currentEpoch
+                && Interlocked.Exchange(ref _uiFrameScheduled, 1) == 0)
             {
-                Dispatcher.UIThread.Post(UploadPendingFrame, DispatcherPriority.Normal);
+                Dispatcher.UIThread.Post(() => UploadPendingFrame(currentEpoch), DispatcherPriority.Normal);
             }
         }
     }
@@ -309,10 +322,10 @@ public partial class MainWindow : Window
             : "Running";
 
         RomText.Text = hasRom
-            ? $"ROM: {Path.GetFileName(_emulator.LoadedRomPath)}"
-            : "ROM: -";
+            ? Path.GetFileName(_emulator.LoadedRomPath)
+            : "No ROM loaded";
 
-        PauseMenuItem.Header = stopped ? "_Start" : paused ? "_Resume" : "_Pause";
+        PauseMenuItem.Header = stopped ? "Start" : paused ? "Resume" : "Pause";
 
         if (!hasRom)
         {
@@ -333,7 +346,7 @@ public partial class MainWindow : Window
 
         if (!running && !paused)
         {
-            FpsText.Text = $"FPS: {_lastFps:0.0}";
+            FpsText.Text = $"{_lastFps:0.0} FPS";
         }
 
         SetTransportEnabled(hasRom);
@@ -351,10 +364,22 @@ public partial class MainWindow : Window
 
     private void ClearViewport()
     {
-        Array.Clear(_pixelScratch);
+        var epoch = Interlocked.Increment(ref _frameEpoch);
+
+        lock (_frameSync)
+        {
+            Array.Clear(_latestFrame);
+            Array.Clear(_pixelScratch);
+            _frameDirty = false;
+            _latestFrameEpoch = epoch;
+        }
+
+        Interlocked.Exchange(ref _uiFrameScheduled, 0);
+
         using var framebuffer = _bitmap.Lock();
         Marshal.Copy(_pixelScratch, 0, framebuffer.Address, _pixelScratch.Length);
         GameImage.InvalidateVisual();
+        GameViewport.InvalidateVisual();
     }
 
     private void ResetFpsCounter()
@@ -362,7 +387,7 @@ public partial class MainWindow : Window
         _fpsFrameCount = 0;
         _lastFps = 0;
         _fpsStopwatch.Restart();
-        FpsText.Text = "FPS: 0.0";
+        FpsText.Text = "0.0 FPS";
     }
 
     private void SetTransportEnabled(bool enabled)

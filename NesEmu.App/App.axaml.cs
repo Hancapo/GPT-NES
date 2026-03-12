@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
-using Avalonia.Themes.Fluent;
+using Avalonia.Styling;
+using ShadUI;
 
 namespace NesEmu.App;
 
@@ -8,7 +9,8 @@ public partial class App : Application
 {
     public override void Initialize()
     {
-        Styles.Add(new FluentTheme());
+        Styles.Add(new ShadTheme());
+        RequestedThemeVariant = ThemeVariant.Dark;
     }
 
     public override void OnFrameworkInitializationCompleted()

@@ -1,58 +1,156 @@
-<Window xmlns="https://github.com/avaloniaui"
-        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        mc:Ignorable="d"
-        x:Class="NesEmu.App.MainWindow"
-        Width="1200"
-        Height="820"
-        MinWidth="860"
-        MinHeight="620"
-        Background="#1C1F23"
-        Foreground="#F3F3F3"
-        FontFamily="Segoe UI"
-        UseLayoutRounding="True"
-        Title="NesEmu">
-  <Window.Styles>
-    <Style Selector="Border.frame-host">
-      <Setter Property="Background" Value="#111315" />
-      <Setter Property="BorderBrush" Value="#31353A" />
+<shadui:Window xmlns="https://github.com/avaloniaui"
+               xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+               xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+               xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+               xmlns:shadui="clr-namespace:ShadUI;assembly=ShadUI"
+               mc:Ignorable="d"
+               x:Class="NesEmu.App.MainWindow"
+               Width="1280"
+               Height="900"
+               MinWidth="980"
+               MinHeight="720"
+               Title="NesEmu"
+               TitleFontWeight="SemiBold"
+               IsMenuVisible="True"
+               SaveWindowState="True"
+               ShowBottomBorder="True"
+               UseLayoutRounding="True"
+               WindowStartupLocation="CenterScreen">
+  <shadui:Window.Styles>
+    <Style Selector="Border.section">
+      <Setter Property="Background" Value="{DynamicResource CardBackgroundColor}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="CornerRadius" Value="22" />
     </Style>
-    <Style Selector="TextBlock.status">
-      <Setter Property="VerticalAlignment" Value="Center" />
-      <Setter Property="Margin" Value="0,0,14,0" />
-      <Setter Property="FontSize" Value="12" />
+    <Style Selector="TextBlock.caption">
+      <Setter Property="Opacity" Value="0.72" />
+      <Setter Property="FontSize" Value="13" />
     </Style>
-  </Window.Styles>
+    <Style Selector="TextBlock.hero-title">
+      <Setter Property="FontSize" Value="30" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="Button.header-action">
+      <Setter Property="MinWidth" Value="126" />
+      <Setter Property="Height" Value="38" />
+    </Style>
+  </shadui:Window.Styles>
 
-  <Grid RowDefinitions="Auto,*,Auto">
-    <Menu Grid.Row="0">
-      <MenuItem Header="_File">
-        <MenuItem Header="_Open ROM..." Click="OpenRomButton_OnClick" />
+  <shadui:Window.LogoContent>
+    <Border Margin="12,8,0,8"
+            Padding="10,4"
+            CornerRadius="999"
+            Background="{DynamicResource PrimaryColor}">
+      <TextBlock FontSize="11"
+                 FontWeight="Bold"
+                 Foreground="{DynamicResource PrimaryForegroundColor}"
+                 Text="NES" />
+    </Border>
+  </shadui:Window.LogoContent>
+
+  <shadui:Window.MenuBarContent>
+    <Menu>
+      <MenuItem Header="File">
+        <MenuItem Header="Open ROM..." Click="OpenRomButton_OnClick" />
         <Separator />
-        <MenuItem Header="_Exit" Click="ExitMenuItem_OnClick" />
+        <MenuItem Header="Exit" Click="ExitMenuItem_OnClick" />
       </MenuItem>
-      <MenuItem Header="_Emulation">
-        <MenuItem x:Name="PauseMenuItem" Header="_Pause" Click="PauseButton_OnClick" />
-        <MenuItem x:Name="StopMenuItem" Header="_Stop" Click="StopButton_OnClick" />
-        <MenuItem x:Name="ResetMenuItem" Header="_Reset" Click="ResetButton_OnClick" />
+      <MenuItem Header="Emulation">
+        <MenuItem x:Name="PauseMenuItem" Header="Pause" Click="PauseButton_OnClick" />
+        <MenuItem x:Name="StopMenuItem" Header="Stop" Click="StopButton_OnClick" />
+        <MenuItem x:Name="ResetMenuItem" Header="Reset" Click="ResetButton_OnClick" />
       </MenuItem>
-      <MenuItem Header="_Settings" Click="SettingsMenuItem_OnClick" />
+      <MenuItem Header="Settings" Click="SettingsMenuItem_OnClick" />
     </Menu>
+  </shadui:Window.MenuBarContent>
+
+  <Grid RowDefinitions="Auto,*,Auto"
+        Margin="24,22,24,20">
+    <Border Grid.Row="0"
+            Classes="section"
+            Padding="22,20"
+            Margin="0,0,0,18">
+      <Grid ColumnDefinitions="*,Auto"
+            RowDefinitions="Auto,Auto"
+            ColumnSpacing="20"
+            RowSpacing="16">
+        <StackPanel Spacing="6">
+          <TextBlock Classes="hero-title" Text="NesEmu" />
+          <TextBlock x:Name="RomText"
+                     Classes="caption"
+                     FontSize="15"
+                     Text="No ROM loaded" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="10"
+                    VerticalAlignment="Top">
+          <Button Classes="Primary header-action"
+                  Content="Open ROM..."
+                  Click="OpenRomButton_OnClick" />
+          <Button Classes="Outline header-action"
+                  Content="Settings"
+                  Click="SettingsMenuItem_OnClick" />
+        </StackPanel>
+
+        <StackPanel Grid.Row="1"
+                    Grid.ColumnSpan="2"
+                    Orientation="Horizontal"
+                    Spacing="10">
+          <shadui:Badge Classes="Outline">
+            <TextBlock x:Name="RunStateText"
+                       FontWeight="SemiBold"
+                       Text="No ROM" />
+          </shadui:Badge>
+          <shadui:Badge>
+            <TextBlock x:Name="FpsText"
+                       FontWeight="SemiBold"
+                       Text="0.0 FPS" />
+          </shadui:Badge>
+        </StackPanel>
+      </Grid>
+    </Border>
 
     <Border Grid.Row="1"
-            Margin="12"
-            Classes="frame-host"
-            Padding="12">
+            Classes="section"
+            Padding="24">
       <Grid>
+        <Grid IsHitTestVisible="False">
+          <Border CornerRadius="18">
+            <Border.Background>
+              <LinearGradientBrush StartPoint="0,0"
+                                   EndPoint="1,1">
+                <GradientStop Color="#FF101828" Offset="0" />
+                <GradientStop Color="#FF09090B" Offset="0.62" />
+                <GradientStop Color="#FF0B1220" Offset="1" />
+              </LinearGradientBrush>
+            </Border.Background>
+          </Border>
+          <Ellipse Width="520"
+                   Height="520"
+                   HorizontalAlignment="Left"
+                   VerticalAlignment="Top"
+                   Margin="-140,-220,0,0"
+                   Fill="#2A3B82F6" />
+          <Ellipse Width="420"
+                   Height="420"
+                   HorizontalAlignment="Right"
+                   VerticalAlignment="Bottom"
+                   Margin="0,0,-120,-150"
+                   Fill="#2214B8A6" />
+        </Grid>
+
         <Border x:Name="GameViewport"
-                Background="#08090A"
-                BorderBrush="#23272C"
-                BorderThickness="1"
-                CornerRadius="6"
                 Focusable="True"
+                HorizontalAlignment="Stretch"
+                VerticalAlignment="Stretch"
+                CornerRadius="20"
+                BorderThickness="1"
+                BorderBrush="#2B3440"
+                Background="#05080A"
+                Padding="28"
                 PointerPressed="GameViewport_OnPointerPressed">
           <Grid>
             <Viewbox Stretch="Uniform"
@@ -60,41 +158,47 @@
                      HorizontalAlignment="Center"
                      VerticalAlignment="Center"
                      RenderOptions.BitmapInterpolationMode="None">
-              <Border Background="#000000"
-                      BorderBrush="#1B2025"
-                      BorderThickness="14"
-                      CornerRadius="4">
-                <Image x:Name="GameImage"
-                       Width="256"
-                       Height="240"
-                       Stretch="Fill"
-                       RenderOptions.BitmapInterpolationMode="None" />
+              <Border Background="#050505"
+                      BorderBrush="#0F172A"
+                      BorderThickness="1"
+                      CornerRadius="28"
+                      Padding="20">
+                <Border Background="#000000"
+                        BorderBrush="#1E293B"
+                        BorderThickness="14"
+                        CornerRadius="20">
+                  <Image x:Name="GameImage"
+                         Width="256"
+                         Height="240"
+                         Stretch="Fill"
+                         RenderOptions.BitmapInterpolationMode="None" />
+                </Border>
               </Border>
             </Viewbox>
 
             <Border x:Name="OverlayPanel"
-                    Width="320"
-                    Padding="18"
-                    CornerRadius="10"
-                    Background="#D9181A1D"
-                    BorderBrush="#43484E"
-                    BorderThickness="1"
+                    Width="360"
+                    Padding="22"
+                    Classes="section"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Center">
-              <StackPanel Spacing="12">
+              <StackPanel Spacing="14">
                 <TextBlock x:Name="OverlayTitleText"
-                           FontSize="22"
+                           FontSize="26"
                            FontWeight="SemiBold"
                            HorizontalAlignment="Center"
                            Text="NesEmu" />
                 <TextBlock x:Name="OverlayBodyText"
+                           Classes="caption"
+                           FontSize="14"
                            TextAlignment="Center"
-                           Opacity="0.78"
+                           TextWrapping="Wrap"
                            Text="Open a NES ROM to get started." />
                 <Button x:Name="OverlayOpenButton"
+                        Classes="Primary"
+                        MinWidth="144"
                         HorizontalAlignment="Center"
-                        Width="124"
-                        Content="Open ROM"
+                        Content="Open ROM..."
                         Click="OpenRomButton_OnClick" />
               </StackPanel>
             </Border>
@@ -104,24 +208,12 @@
     </Border>
 
     <Border Grid.Row="2"
-            Background="#25292E"
-            BorderBrush="#31353A"
-            BorderThickness="0,1,0,0"
-            Padding="12,7">
-      <DockPanel LastChildFill="True">
-        <StackPanel DockPanel.Dock="Left"
-                    Orientation="Horizontal">
-          <TextBlock x:Name="RunStateText" Classes="status" Text="No ROM" />
-          <TextBlock x:Name="FpsText" Classes="status" Text="FPS: 0.0" />
-          <TextBlock x:Name="RomText" Classes="status" Text="ROM: -" />
-        </StackPanel>
-
-        <TextBlock x:Name="StatusText"
-                   VerticalAlignment="Center"
-                   FontSize="12"
-                   Opacity="0.76"
-                   Text="Ready." />
-      </DockPanel>
+            Classes="section"
+            Padding="16,12"
+            Margin="0,18,0,0">
+      <TextBlock x:Name="StatusText"
+                 VerticalAlignment="Center"
+                 Text="Ready." />
     </Border>
   </Grid>
-</Window>
+</shadui:Window>

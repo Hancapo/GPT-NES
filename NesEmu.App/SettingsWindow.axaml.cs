@@ -1,13 +1,23 @@
+using Avalonia;
 using System.Threading;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using ShadWindow = ShadUI.Window;
 
 namespace NesEmu.App;
 
-public partial class SettingsWindow : Window
+public partial class SettingsWindow : ShadWindow
 {
+    private enum SettingsSection
+    {
+        Audio,
+        Controls,
+        Midi
+    }
+
     private readonly EmulatorHost? _emulator;
     private readonly MidiOutputService? _midiOutput;
     private readonly InputStateSource? _inputState;
@@ -17,12 +27,15 @@ public partial class SettingsWindow : Window
     private CancellationTokenSource? _midiSettingsApplyCancellation;
     private CancellationTokenSource? _inputSettingsApplyCancellation;
     private string? _pendingKeyboardBindingAction;
+    private SettingsSection _activeSection = SettingsSection.Audio;
     private bool _suppressEvents = true;
 
     public SettingsWindow()
     {
         InitializeComponent();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
+        SelectSection(SettingsSection.Audio);
         InitializeOptions();
         LoadAudioSettings(AudioOutputSettings.CreateDefault());
         LoadInputSettings(InputSettings.CreateDefault(), DefaultControllerDevices);
@@ -39,6 +52,8 @@ public partial class SettingsWindow : Window
 
         InitializeComponent();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
+        SelectSection(SettingsSection.Audio);
         InitializeOptions();
         LoadSettingsFromServices();
         _suppressEvents = false;
@@ -245,6 +260,60 @@ public partial class SettingsWindow : Window
         }
 
         AssignPendingKeyboardBinding(e.Key);
+        e.Handled = true;
+    }
+
+    private void SettingsSectionItem_OnChecked(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: string tag })
+        {
+            return;
+        }
+
+        var section = tag switch
+        {
+            "Audio" => SettingsSection.Audio,
+            "Controls" => SettingsSection.Controls,
+            "MIDI" => SettingsSection.Midi,
+            _ => SettingsSection.Audio
+        };
+
+        SelectSection(section);
+    }
+
+    private void SettingsWindow_PointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        if (Math.Abs(e.Delta.Y) < double.Epsilon)
+        {
+            return;
+        }
+
+        if (e.Source is Visual source
+            && (source.FindAncestorOfType<ComboBoxItem>() is not null
+                || source.FindAncestorOfType<ScrollBar>() is not null))
+        {
+            return;
+        }
+
+        var scrollViewer = GetActiveScrollViewer();
+        if (scrollViewer is null || !scrollViewer.IsVisible)
+        {
+            return;
+        }
+
+        var maxOffsetY = Math.Max(0, scrollViewer.Extent.Height - scrollViewer.Viewport.Height);
+        if (maxOffsetY <= 0)
+        {
+            return;
+        }
+
+        var proposedOffsetY = Math.Clamp(scrollViewer.Offset.Y - (e.Delta.Y * 56.0), 0, maxOffsetY);
+        if (Math.Abs(proposedOffsetY - scrollViewer.Offset.Y) < 0.5)
+        {
+            return;
+        }
+
+        scrollViewer.Offset = new Vector(scrollViewer.Offset.X, proposedOffsetY);
         e.Handled = true;
     }
 
@@ -622,6 +691,37 @@ public partial class SettingsWindow : Window
     {
         var rounded = Math.Clamp((int)Math.Round(value), -40, 40);
         return $"{rounded:+#;-#;0} ms";
+    }
+
+    private ScrollViewer? GetActiveScrollViewer()
+    {
+        return _activeSection switch
+        {
+            SettingsSection.Audio => AudioScrollViewer,
+            SettingsSection.Controls => ControlsScrollViewer,
+            SettingsSection.Midi => MidiScrollViewer,
+            _ => null
+        };
+    }
+
+    private void SelectSection(SettingsSection section)
+    {
+        _activeSection = section;
+
+        if (AudioScrollViewer is not null)
+        {
+            AudioScrollViewer.IsVisible = section == SettingsSection.Audio;
+        }
+
+        if (ControlsScrollViewer is not null)
+        {
+            ControlsScrollViewer.IsVisible = section == SettingsSection.Controls;
+        }
+
+        if (MidiScrollViewer is not null)
+        {
+            MidiScrollViewer.IsVisible = section == SettingsSection.Midi;
+        }
     }
 
     private Button? GetKeyboardBindingButton(string action)
