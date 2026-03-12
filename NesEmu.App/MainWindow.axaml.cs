@@ -24,6 +24,7 @@ public partial class MainWindow : Window
     private readonly int[] _pixelScratch = new int[NesVideoConstants.PixelsPerFrame];
     private readonly Stopwatch _fpsStopwatch = Stopwatch.StartNew();
 
+    private SettingsWindow? _settingsWindow;
     private bool _frameDirty;
     private int _uiFrameScheduled;
     private int _fpsFrameCount;
@@ -52,19 +53,26 @@ public partial class MainWindow : Window
 
         SetTransportEnabled(false);
         ClearViewport();
+        SetStatus("Ready.");
         UpdateUiState();
     }
 
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
+        _settingsWindow?.Close();
         _emulator.Dispose();
         _midiOutput.Dispose();
     }
 
     private void PreviewKeyDownHandler(object? sender, KeyEventArgs e)
     {
+        if (!GameViewport.IsKeyboardFocusWithin)
+        {
+            return;
+        }
+
         _inputState.SetKey(e.Key, true);
-        if (IsControlKey(e.Key))
+        if (_inputState.IsControlKey(e.Key))
         {
             e.Handled = true;
         }
@@ -72,8 +80,13 @@ public partial class MainWindow : Window
 
     private void PreviewKeyUpHandler(object? sender, KeyEventArgs e)
     {
+        if (!GameViewport.IsKeyboardFocusWithin)
+        {
+            return;
+        }
+
         _inputState.SetKey(e.Key, false);
-        if (IsControlKey(e.Key))
+        if (_inputState.IsControlKey(e.Key))
         {
             e.Handled = true;
         }
@@ -120,6 +133,15 @@ public partial class MainWindow : Window
         if (!_emulator.IsStopped && !_emulator.IsPaused)
         {
             ResetFpsCounter();
+            SetStatus("Emulation resumed.");
+        }
+        else if (_emulator.IsStopped)
+        {
+            SetStatus("Emulation restarted.");
+        }
+        else
+        {
+            SetStatus("Emulation paused.");
         }
 
         UpdateUiState();
@@ -136,6 +158,7 @@ public partial class MainWindow : Window
         _emulator.Stop();
         ResetFpsCounter();
         ClearViewport();
+        SetStatus("Emulation stopped.");
         UpdateUiState();
         CaptureGameInput();
     }
@@ -149,7 +172,7 @@ public partial class MainWindow : Window
 
         _emulator.Reset();
         ResetFpsCounter();
-        StatusText.Text = "Session reset.";
+        SetStatus("Session reset.");
         UpdateUiState();
         CaptureGameInput();
     }
@@ -159,30 +182,27 @@ public partial class MainWindow : Window
         Close();
     }
 
-    private async void MidiSettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
+    private void SettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
-        try
+        if (_settingsWindow is not null)
         {
-            var dialog = new MidiSettingsWindow(_midiOutput.GetSettingsSnapshot(), _midiOutput.GetDevices());
-            var settings = await dialog.ShowDialog<MidiOutputSettings?>(this);
-            if (settings is null)
-            {
-                CaptureGameInput();
-                return;
-            }
-
-            if (_midiOutput.TryApplySettings(settings, out var error))
-            {
-                StatusText.Text = _midiOutput.GetStatusText();
-            }
-            else
-            {
-                StatusText.Text = error ?? "Could not enable MIDI output.";
-            }
+            _settingsWindow.Activate();
+            return;
         }
-        catch (Exception ex)
+
+        _inputState.Clear();
+
+        _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, SetStatus);
+        _settingsWindow.Closed += SettingsWindow_OnClosed;
+        _settingsWindow.Show(this);
+    }
+
+    private void SettingsWindow_OnClosed(object? sender, EventArgs e)
+    {
+        if (_settingsWindow is not null)
         {
-            StatusText.Text = $"MIDI: {ex.Message}";
+            _settingsWindow.Closed -= SettingsWindow_OnClosed;
+            _settingsWindow = null;
         }
 
         CaptureGameInput();
@@ -199,14 +219,14 @@ public partial class MainWindow : Window
         {
             _emulator.LoadRom(romPath);
             ResetFpsCounter();
-            StatusText.Text = $"Loaded ROM: {Path.GetFileName(romPath)}";
+            SetStatus($"Loaded {Path.GetFileName(romPath)}.");
             SetTransportEnabled(true);
             UpdateUiState();
             CaptureGameInput();
         }
         catch (Exception ex)
         {
-            StatusText.Text = ex.Message;
+            SetStatus(ex.Message);
             SetTransportEnabled(false);
             ClearViewport();
             UpdateUiState();
@@ -263,7 +283,6 @@ public partial class MainWindow : Window
         GameImage.InvalidateVisual();
         GameViewport.InvalidateVisual();
         OverlayPanel.IsVisible = false;
-        RenderStatusText.Text = "Crisp image";
 
         Interlocked.Exchange(ref _uiFrameScheduled, 0);
 
@@ -293,27 +312,22 @@ public partial class MainWindow : Window
             ? $"ROM: {Path.GetFileName(_emulator.LoadedRomPath)}"
             : "ROM: -";
 
-        PauseButton.Content = stopped ? "Start" : paused ? "Resume" : "Pause";
         PauseMenuItem.Header = stopped ? "_Start" : paused ? "_Resume" : "_Pause";
 
         if (!hasRom)
         {
-            StatusText.Text = "No ROM loaded.";
             ShowOverlay("NesEmu", "Open a NES ROM to get started.", showOpenButton: true);
         }
         else if (stopped)
         {
-            StatusText.Text = "Emulation stopped.";
             ShowOverlay("Stopped", "The session is stopped. Press Start to run the ROM again.", showOpenButton: false);
         }
         else if (paused)
         {
-            StatusText.Text = "Emulation paused.";
             ShowOverlay("Paused", "The emulation is paused. Press Resume to continue.", showOpenButton: false);
         }
         else
         {
-            StatusText.Text = $"Running {Path.GetFileName(_emulator.LoadedRomPath)}";
             OverlayPanel.IsVisible = false;
         }
 
@@ -323,7 +337,6 @@ public partial class MainWindow : Window
         }
 
         SetTransportEnabled(hasRom);
-        StopButton.IsEnabled = hasRom;
         StopMenuItem.IsEnabled = hasRom;
         Title = hasRom ? $"NesEmu - {Path.GetFileName(_emulator.LoadedRomPath)}" : "NesEmu";
     }
@@ -354,23 +367,21 @@ public partial class MainWindow : Window
 
     private void SetTransportEnabled(bool enabled)
     {
-        PauseButton.IsEnabled = enabled;
-        StopButton.IsEnabled = enabled;
-        ResetButton.IsEnabled = enabled;
         PauseMenuItem.IsEnabled = enabled;
         StopMenuItem.IsEnabled = enabled;
         ResetMenuItem.IsEnabled = enabled;
     }
 
-    private void CaptureGameInput()
+    private void SetStatus(string message)
     {
-        GameViewport.Focus();
+        StatusText.Text = message;
     }
 
-    private static bool IsControlKey(Key key) =>
-        key is Key.Up or Key.Down or Key.Left or Key.Right
-            or Key.W or Key.A or Key.S or Key.D
-            or Key.Z or Key.X or Key.J or Key.K
-            or Key.Enter or Key.LeftShift or Key.RightShift;
-
+    private void CaptureGameInput()
+    {
+        if (_settingsWindow is null || !_settingsWindow.IsVisible)
+        {
+            GameViewport.Focus();
+        }
+    }
 }

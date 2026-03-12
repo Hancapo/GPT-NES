@@ -1,0 +1,184 @@
+using Avalonia.Input;
+using Windows.Gaming.Input;
+
+namespace NesEmu.App;
+
+public enum ControllerDeviceSource
+{
+    None,
+    Auto,
+    Gamepad,
+    Raw
+}
+
+public enum ControllerBindingKind
+{
+    None,
+    GamepadButton,
+    GamepadAxis,
+    RawButton,
+    RawSwitch,
+    RawAxis
+}
+
+public enum ControllerSwitchDirection
+{
+    Up,
+    Down,
+    Left,
+    Right
+}
+
+public sealed record ControllerDeviceInfo(string Id, string DisplayName, ControllerDeviceSource Source, int DeviceIndex)
+{
+    public const string NoneId = "none";
+    public const string AutoId = "auto";
+
+    public override string ToString() => DisplayName;
+}
+
+public sealed record ControllerBinding(
+    ControllerBindingKind Kind,
+    int Index = -1,
+    int Value = 0,
+    double Threshold = 0.35)
+{
+    public static ControllerBinding None() => new(ControllerBindingKind.None);
+
+    public static ControllerBinding GamepadButton(GamepadButtons button) => new(ControllerBindingKind.GamepadButton, (int)button);
+
+    public static ControllerBinding GamepadAxis(int axisIndex, bool positive, double threshold = 0.35) =>
+        new(ControllerBindingKind.GamepadAxis, axisIndex, positive ? 1 : -1, threshold);
+
+    public static ControllerBinding RawButton(int buttonIndex) => new(ControllerBindingKind.RawButton, buttonIndex);
+
+    public static ControllerBinding RawSwitch(int switchIndex, ControllerSwitchDirection direction) =>
+        new(ControllerBindingKind.RawSwitch, switchIndex, (int)direction);
+
+    public static ControllerBinding RawAxis(int axisIndex, bool positive, double threshold = 0.35) =>
+        new(ControllerBindingKind.RawAxis, axisIndex, positive ? 1 : -1, threshold);
+}
+
+public sealed record ControllerBindingOption(string Id, string DisplayName, ControllerBinding Binding)
+{
+    public override string ToString() => DisplayName;
+}
+
+public sealed record KeyBindingOption(Key Key, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
+public sealed class InputSettings
+{
+    public string SelectedControllerId { get; set; } = ControllerDeviceInfo.AutoId;
+
+    public Key KeyboardAKey { get; set; } = Key.X;
+
+    public Key KeyboardBKey { get; set; } = Key.Z;
+
+    public Key KeyboardSelectKey { get; set; } = Key.RightShift;
+
+    public Key KeyboardStartKey { get; set; } = Key.Enter;
+
+    public Key KeyboardUpKey { get; set; } = Key.Up;
+
+    public Key KeyboardDownKey { get; set; } = Key.Down;
+
+    public Key KeyboardLeftKey { get; set; } = Key.Left;
+
+    public Key KeyboardRightKey { get; set; } = Key.Right;
+
+    public ControllerBinding ControllerA { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.A);
+
+    public ControllerBinding ControllerB { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.X);
+
+    public ControllerBinding ControllerSelect { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.View);
+
+    public ControllerBinding ControllerStart { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.Menu);
+
+    public ControllerBinding ControllerUp { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.DPadUp);
+
+    public ControllerBinding ControllerDown { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.DPadDown);
+
+    public ControllerBinding ControllerLeft { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.DPadLeft);
+
+    public ControllerBinding ControllerRight { get; set; } = ControllerBinding.GamepadButton(GamepadButtons.DPadRight);
+
+    public static InputSettings CreateDefault() => new();
+
+    public InputSettings Clone()
+    {
+        return new InputSettings
+        {
+            SelectedControllerId = SelectedControllerId,
+            KeyboardAKey = KeyboardAKey,
+            KeyboardBKey = KeyboardBKey,
+            KeyboardSelectKey = KeyboardSelectKey,
+            KeyboardStartKey = KeyboardStartKey,
+            KeyboardUpKey = KeyboardUpKey,
+            KeyboardDownKey = KeyboardDownKey,
+            KeyboardLeftKey = KeyboardLeftKey,
+            KeyboardRightKey = KeyboardRightKey,
+            ControllerA = ControllerA with { },
+            ControllerB = ControllerB with { },
+            ControllerSelect = ControllerSelect with { },
+            ControllerStart = ControllerStart with { },
+            ControllerUp = ControllerUp with { },
+            ControllerDown = ControllerDown with { },
+            ControllerLeft = ControllerLeft with { },
+            ControllerRight = ControllerRight with { }
+        };
+    }
+}
+
+public static class InputCatalog
+{
+    public static IReadOnlyList<KeyBindingOption> KeyOptions { get; } = BuildKeyOptions();
+
+    private static IReadOnlyList<KeyBindingOption> BuildKeyOptions()
+    {
+        return
+        [
+            new KeyBindingOption(Key.None, "None"),
+            new KeyBindingOption(Key.Up, "Up Arrow"),
+            new KeyBindingOption(Key.Down, "Down Arrow"),
+            new KeyBindingOption(Key.Left, "Left Arrow"),
+            new KeyBindingOption(Key.Right, "Right Arrow"),
+            new KeyBindingOption(Key.W, "W"),
+            new KeyBindingOption(Key.A, "A"),
+            new KeyBindingOption(Key.S, "S"),
+            new KeyBindingOption(Key.D, "D"),
+            new KeyBindingOption(Key.I, "I"),
+            new KeyBindingOption(Key.J, "J"),
+            new KeyBindingOption(Key.K, "K"),
+            new KeyBindingOption(Key.L, "L"),
+            new KeyBindingOption(Key.Z, "Z"),
+            new KeyBindingOption(Key.X, "X"),
+            new KeyBindingOption(Key.C, "C"),
+            new KeyBindingOption(Key.V, "V"),
+            new KeyBindingOption(Key.Space, "Space"),
+            new KeyBindingOption(Key.Enter, "Enter"),
+            new KeyBindingOption(Key.LeftShift, "Left Shift"),
+            new KeyBindingOption(Key.RightShift, "Right Shift"),
+            new KeyBindingOption(Key.LeftCtrl, "Left Ctrl"),
+            new KeyBindingOption(Key.RightCtrl, "Right Ctrl"),
+            new KeyBindingOption(Key.LeftAlt, "Left Alt"),
+            new KeyBindingOption(Key.RightAlt, "Right Alt"),
+            new KeyBindingOption(Key.Q, "Q"),
+            new KeyBindingOption(Key.E, "E"),
+            new KeyBindingOption(Key.R, "R"),
+            new KeyBindingOption(Key.T, "T"),
+            new KeyBindingOption(Key.Y, "Y"),
+            new KeyBindingOption(Key.U, "U"),
+            new KeyBindingOption(Key.O, "O"),
+            new KeyBindingOption(Key.P, "P"),
+            new KeyBindingOption(Key.F, "F"),
+            new KeyBindingOption(Key.G, "G"),
+            new KeyBindingOption(Key.H, "H"),
+            new KeyBindingOption(Key.B, "B"),
+            new KeyBindingOption(Key.N, "N"),
+            new KeyBindingOption(Key.M, "M")
+        ];
+    }
+}
