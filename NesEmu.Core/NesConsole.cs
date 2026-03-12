@@ -23,6 +23,7 @@ public sealed class NesConsole : ICpuBus, IDisposable
     private double _sampleAccumulator;
     private double _sampleValueAccumulator;
     private int _sampleValueCount;
+    private byte _cpuOpenBus;
 
     public NesConsole(CartridgeImage cartridge)
     {
@@ -48,6 +49,7 @@ public sealed class NesConsole : ICpuBus, IDisposable
         _sampleAccumulator = 0;
         _sampleValueAccumulator = 0;
         _sampleValueCount = 0;
+        _cpuOpenBus = 0;
         lock (_audioLock)
         {
             _audioSamples.Clear();
@@ -115,19 +117,20 @@ public sealed class NesConsole : ICpuBus, IDisposable
 
         return address switch
         {
-            <= 0x1FFF => _cpuRam[address & 0x07FF],
-            <= 0x3FFF => _ppu.CpuRead((ushort)(0x2000 | (address & 0x0007))),
-            0x4015 => _apu.ReadStatus(),
-            0x4016 => _controller1.Read(),
-            0x4017 => _controller2.Read(),
-            >= 0x6000 => _cartridge.CpuRead(address),
-            _ => 0
+            <= 0x1FFF => LatchCpuOpenBus(_cpuRam[address & 0x07FF]),
+            <= 0x3FFF => LatchCpuOpenBus(_ppu.CpuRead((ushort)(0x2000 | (address & 0x0007)))),
+            0x4015 => ReadApuStatus(),
+            0x4016 => LatchCpuOpenBus(_controller1.Read(_cpuOpenBus)),
+            0x4017 => LatchCpuOpenBus(_controller2.Read(_cpuOpenBus)),
+            >= 0x6000 => LatchCpuOpenBus(_cartridge.CpuRead(address)),
+            _ => _cpuOpenBus
         };
     }
 
     public void CpuWrite(ushort address, byte value)
     {
         address &= 0xFFFF;
+        _cpuOpenBus = value;
 
         switch (address)
         {
@@ -215,5 +218,17 @@ public sealed class NesConsole : ICpuBus, IDisposable
         }
 
         _cpu.SetIrqLine(_apu.IrqPending);
+    }
+
+    private byte LatchCpuOpenBus(byte value)
+    {
+        _cpuOpenBus = value;
+        return value;
+    }
+
+    private byte ReadApuStatus()
+    {
+        var status = _apu.ReadStatus();
+        return (byte)((status & 0xDF) | (_cpuOpenBus & 0x20));
     }
 }

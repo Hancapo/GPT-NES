@@ -18,14 +18,14 @@ public sealed class ControllerPort
         }
     }
 
-    public byte Read()
+    public byte Read(byte openBus)
     {
         if (_strobe)
         {
             _latchedState = State.ToByte();
         }
 
-        var value = (byte)((_latchedState & 0x01) | 0x40);
+        var value = (byte)((_latchedState & 0x01) | (openBus & 0xE0));
         _latchedState = (byte)((_latchedState >> 1) | 0x80);
         return value;
     }
