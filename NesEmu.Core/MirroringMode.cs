@@ -5,5 +5,6 @@ public enum MirroringMode
     Horizontal,
     Vertical,
     SingleScreenLower,
-    SingleScreenUpper
+    SingleScreenUpper,
+    FourScreen
 }

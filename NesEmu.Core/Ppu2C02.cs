@@ -5,7 +5,7 @@ namespace NesEmu.Core;
 public sealed class Ppu2C02
 {
     private readonly CartridgeImage _cartridge;
-    private readonly byte[] _vram = new byte[0x800];
+    private readonly byte[] _vram = new byte[0x1000];
     private readonly byte[] _paletteRam = new byte[0x20];
     private readonly byte[] _oam = new byte[0x100];
     private readonly SpriteState[] _sprites = new SpriteState[8];
@@ -611,18 +611,25 @@ public sealed class Ppu2C02
     private byte ReadPpu(ushort address)
     {
         address &= 0x3FFF;
+        byte value;
 
         if (address < 0x2000)
         {
-            return _cartridge.PpuRead(address);
+            value = _cartridge.PpuRead(address);
+            _cartridge.OnPpuAddressAccess(address);
+            return value;
         }
 
         if (address < 0x3F00)
         {
-            return _vram[MirrorNametableAddress(address)];
+            value = _vram[MirrorNametableAddress(address)];
+            _cartridge.OnPpuAddressAccess(address);
+            return value;
         }
 
-        return _paletteRam[MirrorPaletteAddress(address)];
+        value = _paletteRam[MirrorPaletteAddress(address)];
+        _cartridge.OnPpuAddressAccess(address);
+        return value;
     }
 
     private void WritePpu(ushort address, byte value)
@@ -632,16 +639,19 @@ public sealed class Ppu2C02
         if (address < 0x2000)
         {
             _cartridge.PpuWrite(address, value);
+            _cartridge.OnPpuAddressAccess(address);
             return;
         }
 
         if (address < 0x3F00)
         {
             _vram[MirrorNametableAddress(address)] = value;
+            _cartridge.OnPpuAddressAccess(address);
             return;
         }
 
         _paletteRam[MirrorPaletteAddress(address)] = value;
+        _cartridge.OnPpuAddressAccess(address);
     }
 
     private int MirrorNametableAddress(ushort address)
@@ -656,6 +666,7 @@ public sealed class Ppu2C02
             MirroringMode.Vertical => (table & 0x01) * 0x0400 + inner,
             MirroringMode.SingleScreenLower => inner,
             MirroringMode.SingleScreenUpper => 0x0400 + inner,
+            MirroringMode.FourScreen => offset,
             _ => inner
         };
     }

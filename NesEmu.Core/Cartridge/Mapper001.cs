@@ -161,13 +161,13 @@ public sealed class Mapper001 : Mapper
         }
     }
 
-    private byte ReadPrg16(int bank, int offset)
+    private new byte ReadPrg16(int bank, int offset)
     {
         bank %= Math.Max(1, PrgRom.Length / 0x4000);
         return PrgRom[bank * 0x4000 + (offset & 0x3FFF)];
     }
 
-    private byte ReadPrg32(int bank, int offset)
+    private new byte ReadPrg32(int bank, int offset)
     {
         bank %= Math.Max(1, PrgRom.Length / 0x8000);
         return PrgRom[bank * 0x8000 + (offset & 0x7FFF)];

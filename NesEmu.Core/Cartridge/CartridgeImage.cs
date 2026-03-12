@@ -55,7 +55,10 @@ public sealed class CartridgeImage
         var nes20 = (header[7] & 0x0C) == 0x08;
         var hasTrainer = (header[6] & 0x04) != 0;
         var hasBattery = (header[6] & 0x02) != 0;
-        var mirroring = (header[6] & 0x01) != 0 ? MirroringMode.Vertical : MirroringMode.Horizontal;
+        var fourScreen = (header[6] & 0x08) != 0;
+        var mirroring = fourScreen
+            ? MirroringMode.FourScreen
+            : (header[6] & 0x01) != 0 ? MirroringMode.Vertical : MirroringMode.Horizontal;
 
         var mapperId = (header[6] >> 4) | (header[7] & 0xF0);
         if (nes20)
@@ -77,6 +80,10 @@ public sealed class CartridgeImage
         var chrRamSize = usesChrRam
             ? (nes20 ? Math.Max(DecodeRamShift((byte)(header[11] >> 4)), DecodeRamShift((byte)(header[11] & 0x0F))) : 0x2000)
             : chrRomSize;
+        if (usesChrRam && mapperId == 13)
+        {
+            chrRamSize = Math.Max(chrRamSize, 0x4000);
+        }
 
         if (hasTrainer)
         {
@@ -98,11 +105,26 @@ public sealed class CartridgeImage
             0 => new Mapper000(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
             1 => new Mapper001(prgRom, chrMemory, prgRam, usesChrRam),
             2 => new Mapper002(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            3 => new Mapper003(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            4 => new Mapper004(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            7 => new Mapper007(prgRom, chrMemory, prgRam, usesChrRam),
+            9 => new Mapper009(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            10 => new Mapper010(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            11 => new Mapper011(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            13 => new Mapper013(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            34 => new Mapper034(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            66 => new Mapper066(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            71 => new Mapper071(prgRom, chrMemory, prgRam, usesChrRam),
+            94 => new Mapper094(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            140 => new Mapper140(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
+            180 => new Mapper180(prgRom, chrMemory, prgRam, mirroring, usesChrRam),
             _ => throw new NotSupportedException($"Mapper {mapperId} no esta implementado.")
         };
 
         return new CartridgeImage(romPath, prgRom, chrMemory, prgRam, hasBattery, mapper);
     }
+
+    public bool IrqPending => _mapper.IrqPending;
 
     public byte CpuRead(ushort address) => _mapper.CpuRead(address);
 
@@ -119,6 +141,10 @@ public sealed class CartridgeImage
     public byte PpuRead(ushort address) => _mapper.PpuRead(address);
 
     public void PpuWrite(ushort address, byte value) => _mapper.PpuWrite(address, value);
+
+    public void OnPpuAddressAccess(ushort address) => _mapper.OnPpuAddressAccess(address);
+
+    public void Reset() => _mapper.Reset();
 
     public void SaveBatteryBackedRam()
     {

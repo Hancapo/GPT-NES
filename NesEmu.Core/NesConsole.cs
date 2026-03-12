@@ -43,6 +43,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     public void Reset()
     {
         Array.Clear(_cpuRam);
+        _cartridge.Reset();
         _ppu.Reset();
         _apu.Reset();
         _cpu.Reset();
@@ -249,7 +250,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
             _cpu.RequestNmi();
         }
 
-        _cpu.SetIrqLine(_apu.IrqPending);
+        _cpu.SetIrqLine(_apu.IrqPending || _cartridge.IrqPending);
     }
 
     private byte LatchCpuOpenBus(byte value)
