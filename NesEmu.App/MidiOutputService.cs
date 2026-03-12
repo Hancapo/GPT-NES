@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.Threading;
 using NAudio.Midi;
 using NesEmu.Core;
 
@@ -11,11 +13,13 @@ public sealed class MidiOutputService : IDisposable
     private const int PercussionMidiChannel = 10;
     private const int PitchBendCenter = 8192;
     private const int PitchBendRangeSemitones = 2;
-    private const int StableNoteFrames = 2;
-    private const int LargeJumpStableFrames = 3;
-    private const int NoteOffGraceFrames = 2;
+    private const int StableNoteFrames = 1;
+    private const int LargeJumpStableFrames = 2;
+    private const int NoteOffGraceFrames = 1;
     private const int PercussionReleaseFrames = 2;
     private const int RecentMusicWindowFrames = 30;
+    private static readonly TimeSpan FrameLeadCompensation = TimeSpan.FromMilliseconds(8);
+    private static readonly TimeSpan MaximumMidiSyncDelay = TimeSpan.FromMilliseconds(80);
 
     private readonly object _sync = new();
     private readonly MelodicTracker _pulse1Tracker = new("Pulse 1", Pulse1MidiChannel);
@@ -24,17 +28,29 @@ public sealed class MidiOutputService : IDisposable
     private readonly PercussionTracker _noiseTracker = new();
     private readonly PercussionTracker _dmcTracker = new();
     private readonly List<ActivePercussionHit> _activePercussionHits = [];
+    private readonly PriorityQueue<ScheduledMidiMessage, long> _scheduledMessages = new();
+    private readonly AutoResetEvent _dispatchSignal = new(false);
+    private readonly CancellationTokenSource _dispatchCancellation = new();
+    private readonly Stopwatch _schedulerClock = Stopwatch.StartNew();
+    private readonly Task _dispatchTask;
 
     private MidiOutputSettings _settings = MidiOutputSettings.CreateDefault();
     private MidiOut? _midiOut;
     private int _framesSinceMelodicActivity = int.MaxValue;
+    private TimeSpan _presentationLatency = TimeSpan.Zero;
+    private TimeSpan _performanceSendDelay = TimeSpan.Zero;
     private bool _disposed;
+
+    public MidiOutputService()
+    {
+        _dispatchTask = Task.Run(() => DispatchLoop(_dispatchCancellation.Token));
+    }
 
     public IReadOnlyList<MidiOutputDeviceInfo> GetDevices()
     {
         var devices = new List<MidiOutputDeviceInfo>
         {
-            new(-1, "Sin salida MIDI")
+            new(-1, "No MIDI output")
         };
 
         int deviceCount;
@@ -53,13 +69,13 @@ public sealed class MidiOutputService : IDisposable
             {
                 var capabilities = MidiOut.DeviceInfo(i);
                 var displayName = string.IsNullOrWhiteSpace(capabilities.ProductName)
-                    ? $"Dispositivo MIDI {i + 1}"
+                    ? $"MIDI Device {i + 1}"
                     : capabilities.ProductName;
                 devices.Add(new MidiOutputDeviceInfo(i, displayName));
             }
             catch
             {
-                devices.Add(new MidiOutputDeviceInfo(i, $"Dispositivo MIDI {i + 1}"));
+                devices.Add(new MidiOutputDeviceInfo(i, $"MIDI Device {i + 1}"));
             }
         }
 
@@ -80,7 +96,7 @@ public sealed class MidiOutputService : IDisposable
         {
             if (!_settings.Enabled || _settings.DeviceIndex < 0)
             {
-                return "MIDI desactivado";
+                return "MIDI disabled";
             }
 
             return $"MIDI: {ResolveDeviceName(_settings.DeviceIndex)}";
@@ -106,7 +122,7 @@ public sealed class MidiOutputService : IDisposable
             if (_settings.DeviceIndex < 0)
             {
                 _settings.Enabled = false;
-                error = "Selecciona una salida MIDI antes de activar la conversión.";
+                error = "Select a MIDI output before enabling the conversion.";
                 return false;
             }
 
@@ -126,6 +142,14 @@ public sealed class MidiOutputService : IDisposable
         }
     }
 
+    public void SetPresentationLatency(TimeSpan latency)
+    {
+        lock (_sync)
+        {
+            _presentationLatency = ClampLatency(latency);
+        }
+    }
+
     public void ProcessFrame(ApuTapSnapshot snapshot)
     {
         lock (_sync)
@@ -135,21 +159,29 @@ public sealed class MidiOutputService : IDisposable
                 return;
             }
 
-            ProcessPulseVoiceLocked(_pulse1Tracker, snapshot.Pulse1, _settings.Pulse1Enabled, _settings.Pulse1VolumePercent);
-            ProcessPulseVoiceLocked(_pulse2Tracker, snapshot.Pulse2, _settings.Pulse2Enabled, _settings.Pulse2VolumePercent);
-            ProcessTriangleVoiceLocked(_triangleTracker, snapshot.Triangle, _settings.TriangleEnabled);
+            _performanceSendDelay = CalculatePerformanceSendDelayLocked();
+            try
+            {
+                ProcessPulseVoiceLocked(_pulse1Tracker, snapshot.Pulse1, _settings.Pulse1Enabled, _settings.Pulse1VolumePercent);
+                ProcessPulseVoiceLocked(_pulse2Tracker, snapshot.Pulse2, _settings.Pulse2Enabled, _settings.Pulse2VolumePercent);
+                ProcessTriangleVoiceLocked(_triangleTracker, snapshot.Triangle, _settings.TriangleEnabled);
 
-            var melodicActive = _pulse1Tracker.IsNoteOn || _pulse2Tracker.IsNoteOn || _triangleTracker.IsNoteOn;
-            _framesSinceMelodicActivity = melodicActive
-                ? 0
-                : Math.Min(_framesSinceMelodicActivity + 1, RecentMusicWindowFrames + 1);
+                var melodicActive = _pulse1Tracker.IsNoteOn || _pulse2Tracker.IsNoteOn || _triangleTracker.IsNoteOn;
+                _framesSinceMelodicActivity = melodicActive
+                    ? 0
+                    : Math.Min(_framesSinceMelodicActivity + 1, RecentMusicWindowFrames + 1);
 
-            var allowPercussion = _settings.SendPercussion
-                && (!_settings.MusicOnlyFilter || _framesSinceMelodicActivity < RecentMusicWindowFrames);
+                var allowPercussion = _settings.SendPercussion
+                    && (!_settings.MusicOnlyFilter || _framesSinceMelodicActivity < RecentMusicWindowFrames);
 
-            ProcessNoisePercussionLocked(snapshot.Noise, _settings.NoiseEnabled && allowPercussion);
-            ProcessDmcPercussionLocked(snapshot.Dmc, _settings.DmcEnabled && allowPercussion);
-            AdvancePercussionLocked();
+                ProcessNoisePercussionLocked(snapshot.Noise, _settings.NoiseEnabled && allowPercussion);
+                ProcessDmcPercussionLocked(snapshot.Dmc, _settings.DmcEnabled && allowPercussion);
+                AdvancePercussionLocked();
+            }
+            finally
+            {
+                _performanceSendDelay = TimeSpan.Zero;
+            }
         }
     }
 
@@ -178,7 +210,22 @@ public sealed class MidiOutputService : IDisposable
 
             _disposed = true;
             SilenceLocked();
+            _dispatchCancellation.Cancel();
+            _dispatchSignal.Set();
             CloseDeviceLocked();
+        }
+
+        try
+        {
+            _dispatchTask.Wait();
+        }
+        catch (AggregateException)
+        {
+        }
+        finally
+        {
+            _dispatchCancellation.Dispose();
+            _dispatchSignal.Dispose();
         }
     }
 
@@ -421,7 +468,7 @@ public sealed class MidiOutputService : IDisposable
 
     private void SendControlChangeLocked(int channel, int controller, int value)
     {
-        _midiOut?.Send(MidiMessage.ChangeControl(controller, value, channel).RawData);
+        QueueOrSendMessageLocked(MidiMessage.ChangeControl(controller, value, channel).RawData, immediate: _performanceSendDelay <= TimeSpan.Zero);
     }
 
     private void SendChannelVolumeLocked(int channel, int value)
@@ -444,17 +491,17 @@ public sealed class MidiOutputService : IDisposable
         value = Math.Clamp(value, 0, 16_383);
         var status = 0xE0 | ((channel - 1) & 0x0F);
         var message = status | ((value & 0x7F) << 8) | (((value >> 7) & 0x7F) << 16);
-        _midiOut.Send(message);
+        QueueOrSendMessageLocked(message, immediate: _performanceSendDelay <= TimeSpan.Zero);
     }
 
     private void SendNoteOnLocked(int channel, int noteNumber, int velocity)
     {
-        _midiOut?.Send(MidiMessage.StartNote(noteNumber, velocity, channel).RawData);
+        QueueOrSendMessageLocked(MidiMessage.StartNote(noteNumber, velocity, channel).RawData, immediate: _performanceSendDelay <= TimeSpan.Zero);
     }
 
     private void SendNoteOffLocked(int channel, int noteNumber)
     {
-        _midiOut?.Send(MidiMessage.StopNote(noteNumber, 0, channel).RawData);
+        QueueOrSendMessageLocked(MidiMessage.StopNote(noteNumber, 0, channel).RawData, immediate: _performanceSendDelay <= TimeSpan.Zero);
     }
 
     private void StopNoteLocked(MelodicTracker tracker)
@@ -477,6 +524,8 @@ public sealed class MidiOutputService : IDisposable
 
     private void SilenceLocked()
     {
+        ClearScheduledMessagesLocked();
+
         if (_midiOut is null)
         {
             return;
@@ -523,8 +572,116 @@ public sealed class MidiOutputService : IDisposable
 
     private void CloseDeviceLocked()
     {
+        ClearScheduledMessagesLocked();
         _midiOut?.Dispose();
         _midiOut = null;
+    }
+
+    private TimeSpan CalculatePerformanceSendDelayLocked()
+    {
+        if (_presentationLatency <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var compensated = _presentationLatency - FrameLeadCompensation;
+        compensated += TimeSpan.FromMilliseconds(_settings.MidiSyncOffsetMilliseconds);
+        return compensated > TimeSpan.Zero ? ClampLatency(compensated) : TimeSpan.Zero;
+    }
+
+    private void QueueOrSendMessageLocked(int rawData, bool immediate)
+    {
+        if (_midiOut is null)
+        {
+            return;
+        }
+
+        if (immediate)
+        {
+            _midiOut.Send(rawData);
+            return;
+        }
+
+        var dueTicks = _schedulerClock.ElapsedTicks + (long)(_performanceSendDelay.TotalSeconds * Stopwatch.Frequency);
+        _scheduledMessages.Enqueue(new ScheduledMidiMessage(rawData), dueTicks);
+        _dispatchSignal.Set();
+    }
+
+    private void ClearScheduledMessagesLocked()
+    {
+        _scheduledMessages.Clear();
+    }
+
+    private void DispatchLoop(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            FlushDueMessages();
+
+            var waitMilliseconds = GetWaitMilliseconds();
+            _dispatchSignal.WaitOne(waitMilliseconds);
+        }
+
+        FlushDueMessages();
+    }
+
+    private void FlushDueMessages()
+    {
+        while (true)
+        {
+            int? rawData = null;
+
+            lock (_sync)
+            {
+                if (_midiOut is null || _scheduledMessages.Count == 0)
+                {
+                    return;
+                }
+
+                var nowTicks = _schedulerClock.ElapsedTicks;
+                if (!_scheduledMessages.TryPeek(out var nextMessage, out var dueTicks) || dueTicks > nowTicks)
+                {
+                    return;
+                }
+
+                _scheduledMessages.Dequeue();
+                rawData = nextMessage.RawData;
+            }
+
+            if (rawData.HasValue)
+            {
+                lock (_sync)
+                {
+                    _midiOut?.Send(rawData.Value);
+                }
+            }
+        }
+    }
+
+    private int GetWaitMilliseconds()
+    {
+        lock (_sync)
+        {
+            if (_scheduledMessages.Count == 0)
+            {
+                return 8;
+            }
+
+            var nowTicks = _schedulerClock.ElapsedTicks;
+            if (!_scheduledMessages.TryPeek(out _, out var dueTicks))
+            {
+                return 8;
+            }
+
+            var ticksUntilDue = dueTicks - nowTicks;
+            if (ticksUntilDue <= 0)
+            {
+                return 0;
+            }
+
+            var milliseconds = (int)Math.Ceiling(ticksUntilDue * 1000.0 / Stopwatch.Frequency);
+            return Math.Clamp(milliseconds, 1, 8);
+        }
     }
 
     private IEnumerable<MelodicTracker> EnumerateMelodicTrackers()
@@ -576,6 +733,16 @@ public sealed class MidiOutputService : IDisposable
         return Math.Clamp((int)Math.Round(value * (percent / 100.0)), 0, 127);
     }
 
+    private static TimeSpan ClampLatency(TimeSpan latency)
+    {
+        if (latency <= TimeSpan.Zero)
+        {
+            return TimeSpan.Zero;
+        }
+
+        return latency <= MaximumMidiSyncDelay ? latency : MaximumMidiSyncDelay;
+    }
+
     private static PitchTarget CreatePitchTarget(double frequency, int expression)
     {
         var midiValue = 69.0 + (12.0 * Math.Log2(frequency / 440.0));
@@ -588,7 +755,7 @@ public sealed class MidiOutputService : IDisposable
 
     private string ResolveDeviceName(int deviceIndex)
     {
-        return GetDevices().FirstOrDefault(device => device.DeviceIndex == deviceIndex)?.DisplayName ?? "Dispositivo desconocido";
+        return GetDevices().FirstOrDefault(device => device.DeviceIndex == deviceIndex)?.DisplayName ?? "Unknown device";
     }
 
     private sealed class MelodicTracker
@@ -675,6 +842,8 @@ public sealed class MidiOutputService : IDisposable
 
         public int FramesRemaining { get; set; }
     }
+
+    private readonly record struct ScheduledMidiMessage(int RawData);
 }
 
 public sealed class MidiOutputSettings
@@ -717,6 +886,8 @@ public sealed class MidiOutputSettings
 
     public int DmcDrumNote { get; set; } = -1;
 
+    public int MidiSyncOffsetMilliseconds { get; set; }
+
     public static MidiOutputSettings CreateDefault() => new();
 
     public MidiOutputSettings Clone()
@@ -741,12 +912,16 @@ public sealed class MidiOutputSettings
             NoiseVolumePercent = NoiseVolumePercent,
             DmcVolumePercent = DmcVolumePercent,
             NoiseDrumNote = NoiseDrumNote,
-            DmcDrumNote = DmcDrumNote
+            DmcDrumNote = DmcDrumNote,
+            MidiSyncOffsetMilliseconds = MidiSyncOffsetMilliseconds
         };
     }
 }
 
-public sealed record MidiOutputDeviceInfo(int DeviceIndex, string DisplayName);
+public sealed record MidiOutputDeviceInfo(int DeviceIndex, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
 
 public sealed record MidiProgramOption(int ProgramNumber, string DisplayName)
 {

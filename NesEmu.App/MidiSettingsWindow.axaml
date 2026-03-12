@@ -11,7 +11,7 @@
         Background="#202020"
         Foreground="#F4F4F4"
         FontFamily="Segoe UI"
-        Title="Configuración MIDI"
+        Title="MIDI Settings"
         WindowStartupLocation="CenterOwner">
   <Window.Styles>
     <Style Selector="Border.section">
@@ -37,6 +37,11 @@
       <Setter Property="Minimum" Value="0" />
       <Setter Property="Maximum" Value="200" />
     </Style>
+    <Style Selector="Slider.sync-offset">
+      <Setter Property="Width" Value="220" />
+      <Setter Property="Minimum" Value="-40" />
+      <Setter Property="Maximum" Value="40" />
+    </Style>
   </Window.Styles>
 
   <Grid RowDefinitions="Auto,*,Auto">
@@ -48,9 +53,9 @@
       <StackPanel Spacing="4">
         <TextBlock FontSize="20"
                    FontWeight="SemiBold"
-                   Text="Conversión NES a MIDI OUT" />
+                   Text="NES to MIDI OUT" />
         <TextBlock Classes="help"
-                   Text="Los canales Pulse 1, Pulse 2 y Triangle se convierten a notas MIDI; Noise y DMC se simplifican como percusión." />
+                   Text="Pulse 1, Pulse 2, and Triangle are converted to MIDI notes. Noise and DMC are simplified as percussion." />
       </StackPanel>
     </Border>
 
@@ -58,16 +63,16 @@
       <StackPanel Margin="16" Spacing="16">
         <Border Classes="section">
           <StackPanel Spacing="12">
-            <TextBlock Classes="section-title" Text="Salida" />
+            <TextBlock Classes="section-title" Text="Output" />
 
             <CheckBox x:Name="EnableMidiCheckBox"
-                      Content="Activar salida MIDI en tiempo real" />
+                      Content="Enable real-time MIDI output" />
 
             <Grid ColumnDefinitions="170,*"
-                  RowDefinitions="Auto,Auto,Auto"
+                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
                   RowSpacing="12">
-              <TextBlock Grid.Row="0" VerticalAlignment="Center" Text="Dispositivo" />
+              <TextBlock Grid.Row="0" VerticalAlignment="Center" Text="Device" />
               <ComboBox x:Name="OutputDeviceComboBox"
                         Grid.Row="0"
                         Grid.Column="1"
@@ -76,29 +81,49 @@
               <TextBlock Grid.Row="1"
                          Grid.ColumnSpan="2"
                          Classes="help"
-                         Text="Si activas esta función, el teclado o módulo MIDI recibirá la música del juego en tiempo real." />
+                         Text="When enabled, your keyboard or MIDI module will receive the game's music in real time." />
 
               <CheckBox x:Name="MusicOnlyCheckBox"
                         Grid.Row="2"
                         Grid.ColumnSpan="2"
-                        Content="Intentar filtrar efectos cortos para dejar solo la música" />
+                        Content="Try to filter short sound effects and keep only the music" />
+
+              <Grid Grid.Row="3"
+                    Grid.ColumnSpan="2"
+                    ColumnDefinitions="170,Auto,Auto"
+                    ColumnSpacing="12">
+                <TextBlock VerticalAlignment="Center" Text="MIDI sync offset" />
+                <Slider x:Name="MidiSyncOffsetSlider"
+                        Grid.Column="1"
+                        Classes="sync-offset"
+                        ValueChanged="SyncOffsetSlider_OnValueChanged" />
+                <TextBlock x:Name="MidiSyncOffsetText"
+                           Grid.Column="2"
+                           Width="64"
+                           VerticalAlignment="Center"
+                           TextAlignment="Right" />
+              </Grid>
+              <TextBlock Grid.Row="4"
+                         Grid.ColumnSpan="2"
+                         Classes="help"
+                         Text="Negative values send MIDI earlier. Positive values delay MIDI further." />
             </Grid>
           </StackPanel>
         </Border>
 
         <Border Classes="section">
           <StackPanel Spacing="12">
-            <TextBlock Classes="section-title" Text="Canales Melódicos" />
+            <TextBlock Classes="section-title" Text="Melodic Channels" />
             <TextBlock Classes="help"
-                       Text="Pulse 1, Pulse 2 y Triangle salen por los canales MIDI 1, 2 y 3 con pitch bend para afinar mejor las notas." />
+                       Text="Pulse 1, Pulse 2, and Triangle are sent through MIDI channels 1, 2, and 3 with pitch bend for closer tuning." />
 
             <Grid ColumnDefinitions="Auto,Auto,*,Auto"
                   RowDefinitions="Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
                   RowSpacing="12">
-              <TextBlock Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="Canal" />
-              <TextBlock Grid.Row="0" Grid.Column="2" FontWeight="SemiBold" Text="Instrumento" />
-              <TextBlock Grid.Row="0" Grid.Column="3" FontWeight="SemiBold" Text="Volumen" />
+              <TextBlock Grid.Row="0" Grid.Column="1" FontWeight="SemiBold" Text="Channel" />
+              <TextBlock Grid.Row="0" Grid.Column="2" FontWeight="SemiBold" Text="Instrument" />
+              <TextBlock Grid.Row="0" Grid.Column="3" FontWeight="SemiBold" Text="Volume" />
 
               <CheckBox x:Name="Pulse1EnabledCheckBox" Grid.Row="1" Content="Pulse 1" />
               <TextBlock Grid.Row="1" Grid.Column="1" VerticalAlignment="Center" Text="MIDI 1" />
@@ -162,12 +187,12 @@
 
         <Border Classes="section">
           <StackPanel Spacing="12">
-            <TextBlock Classes="section-title" Text="Percusión" />
+            <TextBlock Classes="section-title" Text="Percussion" />
             <TextBlock Classes="help"
-                       Text="Noise y DMC salen por el canal MIDI 10. Puedes dejar Auto o forzar un sonido de batería concreto." />
+                       Text="Noise and DMC are sent through MIDI channel 10. Leave them on Auto or force a specific drum note." />
 
             <CheckBox x:Name="PercussionCheckBox"
-                      Content="Enviar Noise y DMC como percusión" />
+                      Content="Send Noise and DMC as percussion" />
 
             <Grid ColumnDefinitions="Auto,*,Auto"
                   RowDefinitions="Auto,Auto,Auto"
@@ -212,7 +237,7 @@
               <TextBlock Grid.Row="2"
                          Grid.ColumnSpan="3"
                          Classes="help"
-                         Text="La separación música/SFX aquí es heurística. Está pensada para priorizar líneas musicales estables y percusión del tema." />
+                         Text="Music and SFX separation is heuristic. It is tuned to prioritize stable melodic lines and in-song percussion." />
             </Grid>
           </StackPanel>
         </Border>
@@ -227,15 +252,15 @@
       <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="10">
         <TextBlock VerticalAlignment="Center"
                    Classes="help"
-                   Text="Puedes aplicar los cambios con la emulación en marcha." />
+                   Text="You can apply changes while the emulator is running." />
         <Button Grid.Column="1"
                 MinWidth="96"
-                Content="Cancelar"
+                Content="Cancel"
                 Click="CancelButton_OnClick" />
         <Button Grid.Column="2"
                 MinWidth="96"
                 Classes="accent"
-                Content="Aceptar"
+                Content="Apply"
                 Click="AcceptButton_OnClick" />
       </Grid>
     </Border>

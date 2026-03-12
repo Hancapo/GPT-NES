@@ -66,7 +66,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        StatusText.Text = "Sin ROM cargada.";
+        StatusText.Text = "No ROM loaded.";
         await Task.CompletedTask;
     }
 
@@ -105,10 +105,10 @@ public partial class MainWindow : Window
         var result = await topLevel.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
         {
             AllowMultiple = false,
-            Title = "Selecciona una ROM NES",
+            Title = "Select a NES ROM",
             FileTypeFilter =
             [
-                new FilePickerFileType("ROM NES")
+                new FilePickerFileType("NES ROM")
                 {
                     Patterns = ["*.nes"]
                 }
@@ -164,7 +164,7 @@ public partial class MainWindow : Window
 
         _emulator.Reset();
         ResetFpsCounter();
-        StatusText.Text = "Sesión reiniciada.";
+        StatusText.Text = "Session reset.";
         UpdateUiState();
         CaptureGameInput();
     }
@@ -192,7 +192,7 @@ public partial class MainWindow : Window
             }
             else
             {
-                StatusText.Text = error ?? "No se pudo activar la salida MIDI.";
+                StatusText.Text = error ?? "Could not enable MIDI output.";
             }
         }
         catch (Exception ex)
@@ -214,7 +214,7 @@ public partial class MainWindow : Window
         {
             _emulator.LoadRom(romPath);
             ResetFpsCounter();
-            StatusText.Text = $"ROM cargada: {Path.GetFileName(romPath)}";
+            StatusText.Text = $"Loaded ROM: {Path.GetFileName(romPath)}";
             SetTransportEnabled(true);
             UpdateUiState();
             CaptureGameInput();
@@ -278,7 +278,7 @@ public partial class MainWindow : Window
         GameImage.InvalidateVisual();
         GameViewport.InvalidateVisual();
         OverlayPanel.IsVisible = false;
-        RenderStatusText.Text = "Imagen crisp";
+        RenderStatusText.Text = "Crisp image";
 
         Interlocked.Exchange(ref _uiFrameScheduled, 0);
 
@@ -299,36 +299,36 @@ public partial class MainWindow : Window
         var running = hasRom && !paused && !stopped;
 
         RunStateText.Text = !hasRom
-            ? "Sin ROM"
-            : stopped ? "Detenido"
-            : paused ? "Pausado"
-            : "En ejecución";
+            ? "No ROM"
+            : stopped ? "Stopped"
+            : paused ? "Paused"
+            : "Running";
 
         RomText.Text = hasRom
             ? $"ROM: {Path.GetFileName(_emulator.LoadedRomPath)}"
             : "ROM: -";
 
-        PauseButton.Content = stopped ? "Iniciar" : paused ? "Reanudar" : "Pausar";
-        PauseMenuItem.Header = stopped ? "_Iniciar" : paused ? "_Reanudar" : "_Pausar";
+        PauseButton.Content = stopped ? "Start" : paused ? "Resume" : "Pause";
+        PauseMenuItem.Header = stopped ? "_Start" : paused ? "_Resume" : "_Pause";
 
         if (!hasRom)
         {
-            StatusText.Text = "Sin ROM cargada.";
-            ShowOverlay("NesEmu", "Abre una ROM NES para empezar.", showOpenButton: true);
+            StatusText.Text = "No ROM loaded.";
+            ShowOverlay("NesEmu", "Open a NES ROM to get started.", showOpenButton: true);
         }
         else if (stopped)
         {
-            StatusText.Text = "Emulación detenida.";
-            ShowOverlay("Detenido", "La sesión está detenida. Pulsa Iniciar para volver a ejecutar la ROM.", showOpenButton: false);
+            StatusText.Text = "Emulation stopped.";
+            ShowOverlay("Stopped", "The session is stopped. Press Start to run the ROM again.", showOpenButton: false);
         }
         else if (paused)
         {
-            StatusText.Text = "Emulación en pausa.";
-            ShowOverlay("Pausa", "La emulación está pausada. Pulsa Reanudar para continuar.", showOpenButton: false);
+            StatusText.Text = "Emulation paused.";
+            ShowOverlay("Paused", "The emulation is paused. Press Resume to continue.", showOpenButton: false);
         }
         else
         {
-            StatusText.Text = $"Ejecutando {Path.GetFileName(_emulator.LoadedRomPath)}";
+            StatusText.Text = $"Running {Path.GetFileName(_emulator.LoadedRomPath)}";
             OverlayPanel.IsVisible = false;
         }
 

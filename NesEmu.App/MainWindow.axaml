@@ -28,18 +28,18 @@
 
   <Grid RowDefinitions="Auto,Auto,*,Auto">
     <Menu Grid.Row="0">
-      <MenuItem Header="_Archivo">
-        <MenuItem Header="_Abrir ROM..." Click="OpenRomButton_OnClick" />
+      <MenuItem Header="_File">
+        <MenuItem Header="_Open ROM..." Click="OpenRomButton_OnClick" />
         <Separator />
-        <MenuItem Header="_Salir" Click="ExitMenuItem_OnClick" />
+        <MenuItem Header="_Exit" Click="ExitMenuItem_OnClick" />
       </MenuItem>
-      <MenuItem Header="_Emulación">
-        <MenuItem x:Name="PauseMenuItem" Header="_Pausar" Click="PauseButton_OnClick" />
-        <MenuItem x:Name="StopMenuItem" Header="_Detener" Click="StopButton_OnClick" />
+      <MenuItem Header="_Emulation">
+        <MenuItem x:Name="PauseMenuItem" Header="_Pause" Click="PauseButton_OnClick" />
+        <MenuItem x:Name="StopMenuItem" Header="_Stop" Click="StopButton_OnClick" />
         <MenuItem x:Name="ResetMenuItem" Header="_Reset" Click="ResetButton_OnClick" />
       </MenuItem>
       <MenuItem Header="_MIDI">
-        <MenuItem Header="_Configuración MIDI..." Click="MidiSettingsMenuItem_OnClick" />
+        <MenuItem Header="_MIDI Settings..." Click="MidiSettingsMenuItem_OnClick" />
       </MenuItem>
     </Menu>
 
@@ -53,17 +53,17 @@
           <Button x:Name="OpenRomButton"
                   Classes="toolbar"
                   Focusable="False"
-                  Content="Abrir"
+                  Content="Open"
                   Click="OpenRomButton_OnClick" />
           <Button x:Name="PauseButton"
                   Classes="toolbar"
                   Focusable="False"
-                  Content="Pausar"
+                  Content="Pause"
                   Click="PauseButton_OnClick" />
           <Button x:Name="StopButton"
                   Classes="toolbar"
                   Focusable="False"
-                  Content="Detener"
+                  Content="Stop"
                   Click="StopButton_OnClick" />
           <Button x:Name="ResetButton"
                   Classes="toolbar"
@@ -81,7 +81,7 @@
                    VerticalAlignment="Center"
                    FontSize="12"
                    Opacity="0.72"
-                   Text="Sin ROM cargada." />
+                   Text="No ROM loaded." />
       </DockPanel>
     </Border>
 
@@ -133,11 +133,11 @@
                 <TextBlock x:Name="OverlayBodyText"
                            TextAlignment="Center"
                            Opacity="0.78"
-                           Text="Abre una ROM NES para empezar." />
+                           Text="Open a NES ROM to get started." />
                 <Button x:Name="OverlayOpenButton"
                         HorizontalAlignment="Center"
                         Width="120"
-                        Content="Abrir ROM"
+                        Content="Open ROM"
                         Click="OpenRomButton_OnClick" />
               </StackPanel>
             </Border>
@@ -152,10 +152,10 @@
             BorderThickness="0,1,0,0"
             Padding="10,6">
       <DockPanel LastChildFill="False">
-        <TextBlock x:Name="RunStateText" Classes="status" DockPanel.Dock="Left" Text="Sin ROM" />
+        <TextBlock x:Name="RunStateText" Classes="status" DockPanel.Dock="Left" Text="No ROM" />
         <TextBlock x:Name="FpsText" Classes="status" DockPanel.Dock="Left" Text="FPS: 0.0" />
         <TextBlock x:Name="RomText" Classes="status" DockPanel.Dock="Left" Text="ROM: -" />
-        <TextBlock x:Name="RenderStatusText" Classes="status" DockPanel.Dock="Right" Text="Imagen crisp" />
+        <TextBlock x:Name="RenderStatusText" Classes="status" DockPanel.Dock="Right" Text="Crisp image" />
       </DockPanel>
     </Border>
   </Grid>

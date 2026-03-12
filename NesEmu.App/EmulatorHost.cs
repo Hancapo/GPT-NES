@@ -181,6 +181,7 @@ public sealed class EmulatorHost : IDisposable
             if (_console is null || _paused || _stopped)
             {
                 PausePlaybackIfNeeded();
+                _midiOutput.SetPresentationLatency(TimeSpan.Zero);
                 await Task.Delay(16, cancellationToken);
                 nextFrameTime = stopwatch.Elapsed;
                 continue;
@@ -188,9 +189,10 @@ public sealed class EmulatorHost : IDisposable
 
             _console.SetControllerState(0, _inputProvider());
             _console.RunFrame();
-            _midiOutput.ProcessFrame(_console.CaptureApuTapSnapshot());
             PumpAudio();
             PrimePlaybackIfReady();
+            _midiOutput.SetPresentationLatency(EstimatePresentationLatency());
+            _midiOutput.ProcessFrame(_console.CaptureApuTapSnapshot());
 
             _console.FrameBuffer.CopyTo(_videoFrameScratch);
             _frameCallback(_videoFrameScratch);
@@ -259,6 +261,7 @@ public sealed class EmulatorHost : IDisposable
     {
         PausePlaybackIfNeeded();
         ClearAudioBuffer();
+        _midiOutput.SetPresentationLatency(TimeSpan.Zero);
     }
 
     private void ClearAudioBuffer()
@@ -273,5 +276,16 @@ public sealed class EmulatorHost : IDisposable
         {
             _audioBuffer.Read(discard, 0, Math.Min(discard.Length, _audioBuffer.BufferedBytes));
         }
+    }
+
+    private TimeSpan EstimatePresentationLatency()
+    {
+        var bufferedDuration = _audioBuffer.BufferedDuration;
+        if (!_playbackPrimed || _waveOut.PlaybackState != PlaybackState.Playing)
+        {
+            return bufferedDuration >= ResumeBufferedDuration ? bufferedDuration : ResumeBufferedDuration;
+        }
+
+        return bufferedDuration;
     }
 }

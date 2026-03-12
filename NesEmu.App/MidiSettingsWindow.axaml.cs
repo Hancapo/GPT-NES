@@ -9,7 +9,7 @@ public partial class MidiSettingsWindow : Window
     private readonly IReadOnlyList<MidiOutputDeviceInfo> _devices;
 
     public MidiSettingsWindow()
-        : this(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "Sin salida MIDI")])
+        : this(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "No MIDI output")])
     {
     }
 
@@ -31,6 +31,7 @@ public partial class MidiSettingsWindow : Window
         NoiseDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
         DmcDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
         UpdateVolumeLabels();
+        UpdateSyncOffsetLabel();
     }
 
     private void LoadSettings(MidiOutputSettings settings)
@@ -49,6 +50,7 @@ public partial class MidiSettingsWindow : Window
         TriangleVolumeSlider.Value = settings.TriangleVolumePercent;
         NoiseVolumeSlider.Value = settings.NoiseVolumePercent;
         DmcVolumeSlider.Value = settings.DmcVolumePercent;
+        MidiSyncOffsetSlider.Value = settings.MidiSyncOffsetMilliseconds;
 
         OutputDeviceComboBox.SelectedItem = _devices.FirstOrDefault(device => device.DeviceIndex == settings.DeviceIndex) ?? _devices.FirstOrDefault();
         Pulse1ProgramComboBox.SelectedItem = MidiCatalog.Programs.FirstOrDefault(program => program.ProgramNumber == settings.Pulse1Program) ?? MidiCatalog.Programs.First();
@@ -57,6 +59,7 @@ public partial class MidiSettingsWindow : Window
         NoiseDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.NoiseDrumNote) ?? MidiCatalog.PercussionNotes.First();
         DmcDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.DmcDrumNote) ?? MidiCatalog.PercussionNotes.First();
         UpdateVolumeLabels();
+        UpdateSyncOffsetLabel();
     }
 
     private void AcceptButton_OnClick(object? sender, RoutedEventArgs e)
@@ -81,7 +84,8 @@ public partial class MidiSettingsWindow : Window
             NoiseVolumePercent = ReadPercent(NoiseVolumeSlider),
             DmcVolumePercent = ReadPercent(DmcVolumeSlider),
             NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1
+            DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
+            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider)
         };
 
         Close(settings);
@@ -97,6 +101,11 @@ public partial class MidiSettingsWindow : Window
         UpdateVolumeLabels();
     }
 
+    private void SyncOffsetSlider_OnValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        UpdateSyncOffsetLabel();
+    }
+
     private void UpdateVolumeLabels()
     {
         Pulse1VolumeText.Text = FormatPercent(Pulse1VolumeSlider.Value);
@@ -106,13 +115,29 @@ public partial class MidiSettingsWindow : Window
         DmcVolumeText.Text = FormatPercent(DmcVolumeSlider.Value);
     }
 
+    private void UpdateSyncOffsetLabel()
+    {
+        MidiSyncOffsetText.Text = FormatOffset(MidiSyncOffsetSlider.Value);
+    }
+
     private static int ReadPercent(Slider slider)
     {
         return Math.Clamp((int)Math.Round(slider.Value), 0, 200);
     }
 
+    private static int ReadOffset(Slider slider)
+    {
+        return Math.Clamp((int)Math.Round(slider.Value), -40, 40);
+    }
+
     private static string FormatPercent(double value)
     {
         return $"{Math.Clamp((int)Math.Round(value), 0, 200)}%";
+    }
+
+    private static string FormatOffset(double value)
+    {
+        var rounded = Math.Clamp((int)Math.Round(value), -40, 40);
+        return $"{rounded:+#;-#;0} ms";
     }
 }
