@@ -16,6 +16,7 @@ namespace NesEmu.App;
 public partial class MainWindow : Window
 {
     private readonly InputStateSource _inputState = new();
+    private readonly MidiOutputService _midiOutput = new();
     private readonly EmulatorHost _emulator;
     private readonly WriteableBitmap _bitmap;
     private readonly object _frameSync = new();
@@ -39,7 +40,7 @@ public partial class MainWindow : Window
             AlphaFormat.Opaque);
 
         GameImage.Source = _bitmap;
-        _emulator = new EmulatorHost(_inputState.GetCombinedState, OnFrameReady);
+        _emulator = new EmulatorHost(_inputState.GetCombinedState, OnFrameReady, _midiOutput);
 
         AddHandler(KeyDownEvent, PreviewKeyDownHandler, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyUpEvent, PreviewKeyUpHandler, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -72,6 +73,7 @@ public partial class MainWindow : Window
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
         _emulator.Dispose();
+        _midiOutput.Dispose();
     }
 
     private void PreviewKeyDownHandler(object? sender, KeyEventArgs e)
@@ -170,6 +172,35 @@ public partial class MainWindow : Window
     private void ExitMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private async void MidiSettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            var dialog = new MidiSettingsWindow(_midiOutput.GetSettingsSnapshot(), _midiOutput.GetDevices());
+            var settings = await dialog.ShowDialog<MidiOutputSettings?>(this);
+            if (settings is null)
+            {
+                CaptureGameInput();
+                return;
+            }
+
+            if (_midiOutput.TryApplySettings(settings, out var error))
+            {
+                StatusText.Text = _midiOutput.GetStatusText();
+            }
+            else
+            {
+                StatusText.Text = error ?? "No se pudo activar la salida MIDI.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"MIDI: {ex.Message}";
+        }
+
+        CaptureGameInput();
     }
 
     private void GameViewport_OnPointerPressed(object? sender, PointerPressedEventArgs e)

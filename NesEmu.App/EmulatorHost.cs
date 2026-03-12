@@ -13,6 +13,7 @@ public sealed class EmulatorHost : IDisposable
 
     private readonly Func<ControllerState> _inputProvider;
     private readonly Action<uint[]> _frameCallback;
+    private readonly MidiOutputService _midiOutput;
     private readonly BufferedWaveProvider _audioBuffer;
     private readonly WaveOutEvent _waveOut;
     private readonly float[] _audioSampleScratch = new float[4096];
@@ -27,10 +28,11 @@ public sealed class EmulatorHost : IDisposable
     private volatile bool _stopped;
     private bool _playbackPrimed;
 
-    public EmulatorHost(Func<ControllerState> inputProvider, Action<uint[]> frameCallback)
+    public EmulatorHost(Func<ControllerState> inputProvider, Action<uint[]> frameCallback, MidiOutputService midiOutput)
     {
         _inputProvider = inputProvider;
         _frameCallback = frameCallback;
+        _midiOutput = midiOutput;
 
         _audioBuffer = new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(NesConsole.AudioSampleRate, 1))
         {
@@ -58,6 +60,7 @@ public sealed class EmulatorHost : IDisposable
     {
         StopLoop();
         PausePlaybackAndFlush();
+        _midiOutput.Silence();
 
         _console?.Dispose();
         _console = new NesConsole(CartridgeImage.Load(romPath));
@@ -72,6 +75,7 @@ public sealed class EmulatorHost : IDisposable
     {
         _console?.Reset();
         PausePlaybackAndFlush();
+        _midiOutput.Silence();
         _playbackPrimed = false;
     }
 
@@ -95,6 +99,7 @@ public sealed class EmulatorHost : IDisposable
         if (_paused)
         {
             PausePlaybackAndFlush();
+            _midiOutput.Silence();
         }
         else
         {
@@ -114,6 +119,7 @@ public sealed class EmulatorHost : IDisposable
         _paused = false;
         _playbackPrimed = false;
         PausePlaybackAndFlush();
+        _midiOutput.Silence();
     }
 
     public void Dispose()
@@ -125,6 +131,7 @@ public sealed class EmulatorHost : IDisposable
 
         _disposed = true;
         StopLoop();
+        _midiOutput.Silence();
         _waveOut.Stop();
         _waveOut.Dispose();
         _console?.Dispose();
@@ -181,6 +188,7 @@ public sealed class EmulatorHost : IDisposable
 
             _console.SetControllerState(0, _inputProvider());
             _console.RunFrame();
+            _midiOutput.ProcessFrame(_console.CaptureApuTapSnapshot());
             PumpAudio();
             PrimePlaybackIfReady();
 

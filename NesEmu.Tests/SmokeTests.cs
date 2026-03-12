@@ -6,6 +6,30 @@ namespace NesEmu.Tests;
 public sealed class SmokeTests
 {
     [Fact]
+    public void ApuTapSnapshot_ReflectsPulseAndDmcRoutingState()
+    {
+        var apu = new Apu2A03(NesConsole.AudioSampleRate);
+        apu.WriteRegister(0x4015, 0x11);
+        apu.WriteRegister(0x4000, 0x1F);
+        apu.WriteRegister(0x4002, 0x20);
+        apu.WriteRegister(0x4003, 0x08);
+        apu.WriteRegister(0x4010, 0x0F);
+        apu.WriteRegister(0x4011, 0x24);
+        apu.WriteRegister(0x4013, 0x10);
+
+        var snapshot = apu.CaptureTapSnapshot();
+
+        Assert.True(snapshot.Pulse1.Enabled);
+        Assert.True(snapshot.Pulse1.Audible);
+        Assert.Equal(0x20, snapshot.Pulse1.TimerPeriod);
+        Assert.True(snapshot.Pulse1.TriggerVersion > 0);
+
+        Assert.True(snapshot.Dmc.Enabled);
+        Assert.True(snapshot.Dmc.Active);
+        Assert.Equal(0x0F, snapshot.Dmc.RateIndex);
+    }
+
+    [Fact]
     public void Mapper0_16KPrg_IsMirroredIntoUpperBank()
     {
         var romPath = CreateTestRom(mapperId: 0, prgBanks: 1, chrBanks: 1);

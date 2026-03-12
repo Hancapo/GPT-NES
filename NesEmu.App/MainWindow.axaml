@@ -38,6 +38,9 @@
         <MenuItem x:Name="StopMenuItem" Header="_Detener" Click="StopButton_OnClick" />
         <MenuItem x:Name="ResetMenuItem" Header="_Reset" Click="ResetButton_OnClick" />
       </MenuItem>
+      <MenuItem Header="_MIDI">
+        <MenuItem Header="_Configuración MIDI..." Click="MidiSettingsMenuItem_OnClick" />
+      </MenuItem>
     </Menu>
 
     <Border Grid.Row="1"
@@ -67,6 +70,11 @@
                   Focusable="False"
                   Content="Reset"
                   Click="ResetButton_OnClick" />
+          <Button x:Name="MidiButton"
+                  Classes="toolbar"
+                  Focusable="False"
+                  Content="MIDI"
+                  Click="MidiSettingsMenuItem_OnClick" />
         </StackPanel>
 
         <TextBlock x:Name="StatusText"

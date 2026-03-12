@@ -48,6 +48,7 @@ public sealed class Apu2A03
     private readonly PulseChannel _pulse2 = new(onesComplementNegate: false);
     private readonly TriangleChannel _triangle = new();
     private readonly NoiseChannel _noise = new();
+    private readonly DmcChannel _dmc = new();
     private readonly HighPassFilter _highPass90;
     private readonly HighPassFilter _highPass440;
     private readonly LowPassFilter _lowPass14k;
@@ -73,6 +74,7 @@ public sealed class Apu2A03
         _pulse2.Reset();
         _triangle.Reset();
         _noise.Reset();
+        _dmc.Reset();
         _cpuCycles = 0;
         _frameCounterCpuCycles = 0;
         _fiveStepMode = false;
@@ -131,6 +133,45 @@ public sealed class Apu2A03
         sample = _lowPass14k.Process(sample);
         sample *= 0.85f;
         return Math.Clamp(sample, -1.0f, 1.0f);
+    }
+
+    public ApuTapSnapshot CaptureTapSnapshot()
+    {
+        return new ApuTapSnapshot(
+            new PulseTapSnapshot(
+                _pulse1.Enabled,
+                _pulse1.IsAudible,
+                _pulse1.Volume,
+                _pulse1.TimerPeriod,
+                _pulse1.DutyMode,
+                _pulse1.TriggerVersion),
+            new PulseTapSnapshot(
+                _pulse2.Enabled,
+                _pulse2.IsAudible,
+                _pulse2.Volume,
+                _pulse2.TimerPeriod,
+                _pulse2.DutyMode,
+                _pulse2.TriggerVersion),
+            new TriangleTapSnapshot(
+                _triangle.Enabled,
+                _triangle.IsAudible,
+                _triangle.Volume,
+                _triangle.TimerPeriod,
+                _triangle.TriggerVersion),
+            new NoiseTapSnapshot(
+                _noise.Enabled,
+                _noise.IsAudible,
+                _noise.Volume,
+                _noise.PeriodIndex,
+                _noise.ModeFlag,
+                _noise.TriggerVersion),
+            new DmcTapSnapshot(
+                _dmc.Enabled,
+                _dmc.IsActive,
+                _dmc.RateIndex,
+                _dmc.OutputLevel,
+                _dmc.SampleLength,
+                _dmc.TriggerVersion));
     }
 
     public byte ReadStatus()
@@ -211,6 +252,18 @@ public sealed class Apu2A03
             case 0x400F:
                 _noise.WriteLength(value, LengthTable);
                 break;
+            case 0x4010:
+                _dmc.WriteControl(value);
+                break;
+            case 0x4011:
+                _dmc.WriteDirectLoad(value);
+                break;
+            case 0x4012:
+                _dmc.WriteSampleAddress(value);
+                break;
+            case 0x4013:
+                _dmc.WriteSampleLength(value);
+                break;
             case 0x4015:
                 WriteStatus(value);
                 break;
@@ -226,6 +279,7 @@ public sealed class Apu2A03
         _pulse2.Enabled = (value & 0x02) != 0;
         _triangle.Enabled = (value & 0x04) != 0;
         _noise.Enabled = (value & 0x08) != 0;
+        _dmc.SetEnabled((value & 0x10) != 0);
     }
 
     private void WriteFrameCounter(byte value)
@@ -389,6 +443,7 @@ public sealed class Apu2A03
         private ushort _timerCounter;
         private byte _sequenceStep;
         private byte _lengthCounter;
+        private int _triggerVersion;
 
         public PulseChannel(bool onesComplementNegate)
         {
@@ -409,6 +464,16 @@ public sealed class Apu2A03
         }
 
         public int LengthCounter => _lengthCounter;
+
+        public int DutyMode => _dutyMode;
+
+        public int TimerPeriod => _timerPeriod;
+
+        public int TriggerVersion => _triggerVersion;
+
+        public int Volume => IsAudible ? CurrentVolume : 0;
+
+        public bool IsAudible => Enabled && _lengthCounter > 0 && _timerPeriod >= 8 && SweepTargetPeriod <= 0x7FF && CurrentVolume > 0;
 
         public int Output
         {
@@ -443,6 +508,7 @@ public sealed class Apu2A03
             _timerCounter = 0;
             _sequenceStep = 0;
             _lengthCounter = 0;
+            _triggerVersion = 0;
         }
 
         public void WriteControl(byte value)
@@ -478,6 +544,7 @@ public sealed class Apu2A03
 
             _sequenceStep = 0;
             _envelopeStart = true;
+            _triggerVersion++;
         }
 
         public void ClockTimer()
@@ -578,6 +645,7 @@ public sealed class Apu2A03
         private ushort _timerCounter;
         private byte _sequenceStep;
         private byte _lengthCounter;
+        private int _triggerVersion;
 
         public bool Enabled
         {
@@ -594,6 +662,14 @@ public sealed class Apu2A03
 
         public int LengthCounter => _lengthCounter;
 
+        public int TimerPeriod => _timerPeriod;
+
+        public int TriggerVersion => _triggerVersion;
+
+        public int Volume => IsAudible ? 15 : 0;
+
+        public bool IsAudible => Enabled && _lengthCounter > 0 && _linearCounter > 0 && _timerPeriod > 1;
+
         public int Output => !Enabled || _lengthCounter == 0 || _linearCounter == 0 ? 0 : TriangleSequence[_sequenceStep];
 
         public void Reset()
@@ -607,6 +683,7 @@ public sealed class Apu2A03
             _timerCounter = 0;
             _sequenceStep = 0;
             _lengthCounter = 0;
+            _triggerVersion = 0;
         }
 
         public void WriteControl(byte value)
@@ -629,6 +706,7 @@ public sealed class Apu2A03
             }
 
             _linearReloadFlag = true;
+            _triggerVersion++;
         }
 
         public void ClockTimer()
@@ -687,6 +765,8 @@ public sealed class Apu2A03
         private ushort _timerCounter;
         private ushort _shiftRegister = 1;
         private byte _lengthCounter;
+        private byte _periodIndex;
+        private int _triggerVersion;
 
         public bool Enabled
         {
@@ -702,6 +782,16 @@ public sealed class Apu2A03
         }
 
         public int LengthCounter => _lengthCounter;
+
+        public int PeriodIndex => _periodIndex;
+
+        public bool ModeFlag => _modeFlag;
+
+        public int TriggerVersion => _triggerVersion;
+
+        public int Volume => IsAudible ? CurrentVolume : 0;
+
+        public bool IsAudible => Enabled && _lengthCounter > 0 && CurrentVolume > 0;
 
         public int Output => !Enabled || _lengthCounter == 0 || (_shiftRegister & 0x01) != 0 ? 0 : CurrentVolume;
 
@@ -719,6 +809,8 @@ public sealed class Apu2A03
             _timerCounter = 0;
             _shiftRegister = 1;
             _lengthCounter = 0;
+            _periodIndex = 0;
+            _triggerVersion = 0;
         }
 
         public void WriteControl(byte value)
@@ -732,7 +824,8 @@ public sealed class Apu2A03
         public void WritePeriod(byte value)
         {
             _modeFlag = (value & 0x80) != 0;
-            _timerPeriod = NoisePeriods[value & 0x0F];
+            _periodIndex = (byte)(value & 0x0F);
+            _timerPeriod = NoisePeriods[_periodIndex];
         }
 
         public void WriteLength(byte value, IReadOnlyList<byte> lengthTable)
@@ -743,6 +836,7 @@ public sealed class Apu2A03
             }
 
             _envelopeStart = true;
+            _triggerVersion++;
         }
 
         public void ClockTimer()
@@ -800,5 +894,76 @@ public sealed class Apu2A03
         }
 
         private int CurrentVolume => _constantVolume ? _envelopePeriod : _envelopeDecayLevel;
+    }
+
+    private sealed class DmcChannel
+    {
+        private bool _enabled;
+        private bool _loopFlag;
+        private byte _rateIndex;
+        private byte _outputLevel;
+        private byte _sampleAddress;
+        private byte _sampleLength;
+        private int _triggerVersion;
+
+        public bool Enabled => _enabled;
+
+        public bool IsActive => _enabled || _outputLevel > 0;
+
+        public int RateIndex => _rateIndex;
+
+        public int OutputLevel => _outputLevel;
+
+        public int SampleLength => _sampleLength;
+
+        public int TriggerVersion => _triggerVersion;
+
+        public void Reset()
+        {
+            _enabled = false;
+            _loopFlag = false;
+            _rateIndex = 0;
+            _outputLevel = 0;
+            _sampleAddress = 0;
+            _sampleLength = 0;
+            _triggerVersion = 0;
+        }
+
+        public void WriteControl(byte value)
+        {
+            _loopFlag = (value & 0x40) != 0;
+            _rateIndex = (byte)(value & 0x0F);
+        }
+
+        public void WriteDirectLoad(byte value)
+        {
+            var level = (byte)(value & 0x7F);
+            if (!_enabled && level > 0 && Math.Abs(level - _outputLevel) >= 8)
+            {
+                _triggerVersion++;
+            }
+
+            _outputLevel = level;
+        }
+
+        public void WriteSampleAddress(byte value)
+        {
+            _sampleAddress = value;
+        }
+
+        public void WriteSampleLength(byte value)
+        {
+            _sampleLength = value;
+        }
+
+        public void SetEnabled(bool enabled)
+        {
+            if (!_enabled && enabled && (_sampleLength > 0 || _outputLevel > 0 || _loopFlag))
+            {
+                _triggerVersion++;
+            }
+
+            _enabled = enabled;
+        }
     }
 }

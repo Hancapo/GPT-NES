@@ -35,6 +35,8 @@ public sealed class NesConsole : ICpuBus, IDisposable
 
     public ReadOnlySpan<uint> FrameBuffer => _ppu.FrameBuffer;
 
+    public ApuTapSnapshot CaptureApuTapSnapshot() => _apu.CaptureTapSnapshot();
+
     public void Reset()
     {
         Array.Clear(_cpuRam);
