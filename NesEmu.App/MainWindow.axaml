@@ -87,12 +87,6 @@
                     Orientation="Horizontal"
                     Spacing="10"
                     VerticalAlignment="Top">
-          <Button Classes="Primary header-action"
-                  Content="Open ROM..."
-                  Click="OpenRomButton_OnClick" />
-          <Button Classes="Outline header-action"
-                  Content="Settings"
-                  Click="SettingsMenuItem_OnClick" />
         </StackPanel>
 
         <StackPanel Grid.Row="1"

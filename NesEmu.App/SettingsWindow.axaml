@@ -52,28 +52,11 @@
             Padding="10,4"
             CornerRadius="999"
             Background="{DynamicResource PrimaryColor}">
-      <TextBlock FontSize="11"
-                 FontWeight="Bold"
-                 Foreground="{DynamicResource PrimaryForegroundColor}"
-                 Text="CFG" />
     </Border>
   </shadui:Window.LogoContent>
 
   <Grid RowDefinitions="Auto,*,Auto"
         Margin="24,24,24,20">
-    <Border Grid.Row="0"
-            Classes="section"
-            Padding="20,16"
-            Margin="0,0,0,18">
-      <StackPanel Spacing="4">
-        <TextBlock FontSize="24"
-                   FontWeight="SemiBold"
-                   Text="Settings" />
-        <TextBlock Classes="help"
-                   Text="Audio, MIDI and input preferences for the current session." />
-      </StackPanel>
-    </Border>
-
     <Grid Grid.Row="1"
           ColumnDefinitions="220,18,*">
       <Border Classes="section"
