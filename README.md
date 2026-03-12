@@ -22,7 +22,7 @@ The repository currently contains:
 
 Notes:
 
-- The application project targets `net10.0-windows10.0.19041.0`.
+- The application project targets `net10.0`.
 - The codebase currently uses preview language features.
 - MIDI and controller support rely on Windows-specific APIs and libraries.
 
@@ -50,7 +50,7 @@ dotnet run --project NesEmu.App/NesEmu.App.csproj
 
 You can also start the built executable directly after a Release build:
 
-`NesEmu.App/bin/Release/net10.0-windows10.0.19041.0/NesEmu.App.exe`
+`NesEmu.App/bin/Release/net10.0/NesEmu.App.exe`
 
 ## Test
 

@@ -1,12 +1,13 @@
+using System.Runtime.InteropServices;
 using Avalonia.Input;
 using NesEmu.Core;
-using Windows.Gaming.Input;
 
 namespace NesEmu.App;
 
 public sealed class InputStateSource
 {
     private const double DefaultAxisThreshold = 0.35;
+    private const uint ErrorSuccess = 0;
     private readonly HashSet<Key> _pressedKeys = [];
     private readonly object _sync = new();
     private InputSettings _settings = InputSettings.CreateDefault();
@@ -58,9 +59,9 @@ public sealed class InputStateSource
             new(ControllerDeviceInfo.AutoId, "Auto detect", ControllerDeviceSource.Auto, -1)
         };
 
-        try
+        for (var i = 0; i < 4; i++)
         {
-            for (var i = 0; i < Gamepad.Gamepads.Count; i++)
+            if (TryGetXInputState((uint)i, out _))
             {
                 devices.Add(new ControllerDeviceInfo(
                     $"gamepad:{i}",
@@ -68,21 +69,6 @@ public sealed class InputStateSource
                     ControllerDeviceSource.Gamepad,
                     i));
             }
-
-            for (var i = 0; i < RawGameController.RawGameControllers.Count; i++)
-            {
-                var controller = RawGameController.RawGameControllers[i];
-                var displayName = $"Raw Controller {i + 1} (VID {controller.HardwareVendorId:X4} PID {controller.HardwareProductId:X4})";
-                devices.Add(new ControllerDeviceInfo(
-                    $"raw:{i}",
-                    displayName,
-                    ControllerDeviceSource.Raw,
-                    i));
-            }
-        }
-        catch
-        {
-            return devices;
         }
 
         return devices;
@@ -90,13 +76,8 @@ public sealed class InputStateSource
 
     public IReadOnlyList<ControllerBindingOption> GetControllerBindingOptions(string? controllerId = null)
     {
-        var id = string.IsNullOrWhiteSpace(controllerId)
-            ? GetSettingsSnapshot().SelectedControllerId
-            : controllerId;
-        var source = GetControllerSource(id);
-
-        var options = new List<ControllerBindingOption>
-        {
+        return
+        [
             new("none", "None", ControllerBinding.None()),
             new("south", "South / Cross / A", ControllerBinding.GamepadButton(GamepadButtons.A)),
             new("west", "West / Square / X", ControllerBinding.GamepadButton(GamepadButtons.X)),
@@ -114,14 +95,7 @@ public sealed class InputStateSource
             new("lsx-", "Left Stick Left", ControllerBinding.GamepadAxis(0, positive: false, DefaultAxisThreshold)),
             new("lsy+", "Left Stick Down", ControllerBinding.GamepadAxis(1, positive: true, DefaultAxisThreshold)),
             new("lsy-", "Left Stick Up", ControllerBinding.GamepadAxis(1, positive: false, DefaultAxisThreshold))
-        };
-
-        if (source == ControllerDeviceSource.Raw)
-        {
-            AppendRawOptions(options, id);
-        }
-
-        return options;
+        ];
     }
 
     public bool IsControlKey(Key key)
@@ -179,37 +153,22 @@ public sealed class InputStateSource
 
     private ControllerState GetControllerState(InputSettings settings)
     {
-        try
-        {
-            return ResolveControllerState(settings);
-        }
-        catch
-        {
-            return default;
-        }
-    }
-
-    private ControllerState ResolveControllerState(InputSettings settings)
-    {
         return GetControllerSource(settings.SelectedControllerId) switch
         {
             ControllerDeviceSource.None => default,
             ControllerDeviceSource.Gamepad => ReadSelectedGamepad(settings),
-            ControllerDeviceSource.Raw => ReadSelectedRawController(settings),
             _ => ReadAutoController(settings)
         };
     }
 
     private ControllerState ReadAutoController(InputSettings settings)
     {
-        if (Gamepad.Gamepads.Count > 0)
+        for (var i = 0; i < 4; i++)
         {
-            return ReadGamepad(Gamepad.Gamepads[0], settings);
-        }
-
-        if (RawGameController.RawGameControllers.Count > 0)
-        {
-            return ReadRawController(RawGameController.RawGameControllers[0], settings);
+            if (TryGetXInputState((uint)i, out var state))
+            {
+                return ReadGamepad(state, settings);
+            }
         }
 
         return default;
@@ -218,133 +177,49 @@ public sealed class InputStateSource
     private ControllerState ReadSelectedGamepad(InputSettings settings)
     {
         var index = ParseDeviceIndex(settings.SelectedControllerId, "gamepad:");
-        return index >= 0 && index < Gamepad.Gamepads.Count
-            ? ReadGamepad(Gamepad.Gamepads[index], settings)
+        return index >= 0 && TryGetXInputState((uint)index, out var state)
+            ? ReadGamepad(state, settings)
             : default;
     }
 
-    private ControllerState ReadSelectedRawController(InputSettings settings)
+    private static ControllerState ReadGamepad(XInputState state, InputSettings settings)
     {
-        var index = ParseDeviceIndex(settings.SelectedControllerId, "raw:");
-        return index >= 0 && index < RawGameController.RawGameControllers.Count
-            ? ReadRawController(RawGameController.RawGameControllers[index], settings)
-            : default;
-    }
-
-    private ControllerState ReadGamepad(Gamepad gamepad, InputSettings settings)
-    {
-        var reading = gamepad.GetCurrentReading();
+        var gamepad = CreateGamepadState(state.Gamepad);
         return new ControllerState(
-            A: EvaluateGamepadBinding(reading, settings.ControllerA),
-            B: EvaluateGamepadBinding(reading, settings.ControllerB),
-            Select: EvaluateGamepadBinding(reading, settings.ControllerSelect),
-            Start: EvaluateGamepadBinding(reading, settings.ControllerStart),
-            Up: EvaluateGamepadBinding(reading, settings.ControllerUp),
-            Down: EvaluateGamepadBinding(reading, settings.ControllerDown),
-            Left: EvaluateGamepadBinding(reading, settings.ControllerLeft),
-            Right: EvaluateGamepadBinding(reading, settings.ControllerRight));
+            A: EvaluateGamepadBinding(gamepad, settings.ControllerA),
+            B: EvaluateGamepadBinding(gamepad, settings.ControllerB),
+            Select: EvaluateGamepadBinding(gamepad, settings.ControllerSelect),
+            Start: EvaluateGamepadBinding(gamepad, settings.ControllerStart),
+            Up: EvaluateGamepadBinding(gamepad, settings.ControllerUp),
+            Down: EvaluateGamepadBinding(gamepad, settings.ControllerDown),
+            Left: EvaluateGamepadBinding(gamepad, settings.ControllerLeft),
+            Right: EvaluateGamepadBinding(gamepad, settings.ControllerRight));
     }
 
-    private ControllerState ReadRawController(RawGameController controller, InputSettings settings)
-    {
-        var buttons = new bool[controller.ButtonCount];
-        var switches = new GameControllerSwitchPosition[controller.SwitchCount];
-        var axes = new double[controller.AxisCount];
-        controller.GetCurrentReading(buttons, switches, axes);
-
-        return new ControllerState(
-            A: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerA),
-            B: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerB),
-            Select: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerSelect),
-            Start: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerStart),
-            Up: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerUp),
-            Down: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerDown),
-            Left: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerLeft),
-            Right: EvaluateRawBinding(controller, buttons, switches, axes, settings.ControllerRight));
-    }
-
-    private static bool EvaluateGamepadBinding(GamepadReading reading, ControllerBinding binding)
+    private static bool EvaluateGamepadBinding(GamepadState state, ControllerBinding binding)
     {
         return binding.Kind switch
         {
             ControllerBindingKind.None => false,
-            ControllerBindingKind.GamepadButton => reading.Buttons.HasFlag((GamepadButtons)binding.Index),
-            ControllerBindingKind.GamepadAxis => EvaluateAxis(ReadGamepadAxis(reading, binding.Index), binding),
+            ControllerBindingKind.GamepadButton => (state.Buttons & (GamepadButtons)binding.Index) != 0,
+            ControllerBindingKind.GamepadAxis => EvaluateAxis(ReadGamepadAxis(state, binding.Index), binding),
             _ => false
         };
     }
 
-    private static bool EvaluateRawBinding(
-        RawGameController controller,
-        IReadOnlyList<bool> buttons,
-        IReadOnlyList<GameControllerSwitchPosition> switches,
-        IReadOnlyList<double> axes,
-        ControllerBinding binding)
-    {
-        binding = TranslateBindingForRawController(controller, binding);
-
-        return binding.Kind switch
-        {
-            ControllerBindingKind.None => false,
-            ControllerBindingKind.RawButton => ButtonPressed(buttons, binding.Index),
-            ControllerBindingKind.RawSwitch => EvaluateSwitch(switches, binding.Index, (ControllerSwitchDirection)binding.Value),
-            ControllerBindingKind.RawAxis => EvaluateAxis(ReadAxis(axes, binding.Index), binding),
-            _ => false
-        };
-    }
-
-    private static ControllerBinding TranslateBindingForRawController(RawGameController controller, ControllerBinding binding)
-    {
-        if (binding.Kind is not (ControllerBindingKind.GamepadButton or ControllerBindingKind.GamepadAxis))
-        {
-            return binding;
-        }
-
-        var isSony = controller.HardwareVendorId == 0x054C;
-
-        return binding.Kind switch
-        {
-            ControllerBindingKind.GamepadButton => (GamepadButtons)binding.Index switch
-            {
-                GamepadButtons.A => ControllerBinding.RawButton(isSony ? 1 : 0),
-                GamepadButtons.B => ControllerBinding.RawButton(isSony ? 2 : 1),
-                GamepadButtons.X => ControllerBinding.RawButton(isSony ? 0 : 2),
-                GamepadButtons.Y => ControllerBinding.RawButton(isSony ? 3 : 3),
-                GamepadButtons.View => ControllerBinding.RawButton(8),
-                GamepadButtons.Menu => ControllerBinding.RawButton(9),
-                GamepadButtons.LeftShoulder => ControllerBinding.RawButton(4),
-                GamepadButtons.RightShoulder => ControllerBinding.RawButton(5),
-                GamepadButtons.DPadUp => ControllerBinding.RawSwitch(0, ControllerSwitchDirection.Up),
-                GamepadButtons.DPadDown => ControllerBinding.RawSwitch(0, ControllerSwitchDirection.Down),
-                GamepadButtons.DPadLeft => ControllerBinding.RawSwitch(0, ControllerSwitchDirection.Left),
-                GamepadButtons.DPadRight => ControllerBinding.RawSwitch(0, ControllerSwitchDirection.Right),
-                _ => ControllerBinding.None()
-            },
-            ControllerBindingKind.GamepadAxis => binding.Index switch
-            {
-                0 => ControllerBinding.RawAxis(0, positive: binding.Value > 0, binding.Threshold),
-                1 => ControllerBinding.RawAxis(1, positive: binding.Value > 0, binding.Threshold),
-                _ => ControllerBinding.None()
-            },
-            _ => binding
-        };
-    }
-
-    private static double ReadGamepadAxis(GamepadReading reading, int axisIndex)
+    private static double ReadGamepadAxis(GamepadState state, int axisIndex)
     {
         return axisIndex switch
         {
-            0 => reading.LeftThumbstickX,
-            1 => -reading.LeftThumbstickY,
-            2 => reading.RightThumbstickX,
-            3 => -reading.RightThumbstickY,
-            4 => reading.LeftTrigger,
-            5 => reading.RightTrigger,
+            0 => state.LeftThumbstickX,
+            1 => -state.LeftThumbstickY,
+            2 => state.RightThumbstickX,
+            3 => -state.RightThumbstickY,
+            4 => state.LeftTrigger,
+            5 => state.RightTrigger,
             _ => 0.0
         };
     }
-
-    private static double ReadAxis(IReadOnlyList<double> axes, int index) => index >= 0 && index < axes.Count ? axes[index] : 0.0;
 
     private static bool EvaluateAxis(double value, ControllerBinding binding)
     {
@@ -352,53 +227,6 @@ public sealed class InputStateSource
         return binding.Value >= 0
             ? value >= threshold
             : value <= -threshold;
-    }
-
-    private static bool EvaluateSwitch(IReadOnlyList<GameControllerSwitchPosition> switches, int switchIndex, ControllerSwitchDirection direction)
-    {
-        if (switchIndex < 0 || switchIndex >= switches.Count)
-        {
-            return false;
-        }
-
-        return direction switch
-        {
-            ControllerSwitchDirection.Up => IsUp(switches[switchIndex]),
-            ControllerSwitchDirection.Down => IsDown(switches[switchIndex]),
-            ControllerSwitchDirection.Left => IsLeft(switches[switchIndex]),
-            ControllerSwitchDirection.Right => IsRight(switches[switchIndex]),
-            _ => false
-        };
-    }
-
-    private void AppendRawOptions(List<ControllerBindingOption> options, string controllerId)
-    {
-        var index = ParseDeviceIndex(controllerId, "raw:");
-        if (index < 0 || index >= RawGameController.RawGameControllers.Count)
-        {
-            return;
-        }
-
-        var controller = RawGameController.RawGameControllers[index];
-        for (var i = 0; i < controller.ButtonCount; i++)
-        {
-            options.Add(new ControllerBindingOption($"rb:{i}", $"Button {i + 1}", ControllerBinding.RawButton(i)));
-        }
-
-        for (var i = 0; i < controller.SwitchCount; i++)
-        {
-            var prefix = controller.SwitchCount == 1 ? "D-Pad" : $"Switch {i + 1}";
-            options.Add(new ControllerBindingOption($"rs:{i}:up", $"{prefix} Up", ControllerBinding.RawSwitch(i, ControllerSwitchDirection.Up)));
-            options.Add(new ControllerBindingOption($"rs:{i}:down", $"{prefix} Down", ControllerBinding.RawSwitch(i, ControllerSwitchDirection.Down)));
-            options.Add(new ControllerBindingOption($"rs:{i}:left", $"{prefix} Left", ControllerBinding.RawSwitch(i, ControllerSwitchDirection.Left)));
-            options.Add(new ControllerBindingOption($"rs:{i}:right", $"{prefix} Right", ControllerBinding.RawSwitch(i, ControllerSwitchDirection.Right)));
-        }
-
-        for (var i = 0; i < controller.AxisCount; i++)
-        {
-            options.Add(new ControllerBindingOption($"ra:{i}:-", $"Axis {i + 1} -", ControllerBinding.RawAxis(i, positive: false)));
-            options.Add(new ControllerBindingOption($"ra:{i}:+", $"Axis {i + 1} +", ControllerBinding.RawAxis(i, positive: true)));
-        }
     }
 
     private static ControllerDeviceSource GetControllerSource(string? controllerId)
@@ -418,11 +246,6 @@ public sealed class InputStateSource
             return ControllerDeviceSource.Gamepad;
         }
 
-        if (controllerId.StartsWith("raw:", StringComparison.OrdinalIgnoreCase))
-        {
-            return ControllerDeviceSource.Raw;
-        }
-
         return ControllerDeviceSource.Auto;
     }
 
@@ -435,19 +258,94 @@ public sealed class InputStateSource
             : -1;
     }
 
+    private static bool TryGetXInputState(uint userIndex, out XInputState state)
+    {
+        try
+        {
+            if (XInputGetState(userIndex, out state) == ErrorSuccess)
+            {
+                return true;
+            }
+        }
+        catch (DllNotFoundException)
+        {
+        }
+        catch (EntryPointNotFoundException)
+        {
+        }
+
+        state = default;
+        return false;
+    }
+
+    private static GamepadState CreateGamepadState(XInputGamepad gamepad)
+    {
+        var buttons = GamepadButtons.None;
+        if ((gamepad.Buttons & 0x1000) != 0) buttons |= GamepadButtons.A;
+        if ((gamepad.Buttons & 0x2000) != 0) buttons |= GamepadButtons.B;
+        if ((gamepad.Buttons & 0x4000) != 0) buttons |= GamepadButtons.X;
+        if ((gamepad.Buttons & 0x8000) != 0) buttons |= GamepadButtons.Y;
+        if ((gamepad.Buttons & 0x0020) != 0) buttons |= GamepadButtons.View;
+        if ((gamepad.Buttons & 0x0010) != 0) buttons |= GamepadButtons.Menu;
+        if ((gamepad.Buttons & 0x0100) != 0) buttons |= GamepadButtons.LeftShoulder;
+        if ((gamepad.Buttons & 0x0200) != 0) buttons |= GamepadButtons.RightShoulder;
+        if ((gamepad.Buttons & 0x0001) != 0) buttons |= GamepadButtons.DPadUp;
+        if ((gamepad.Buttons & 0x0002) != 0) buttons |= GamepadButtons.DPadDown;
+        if ((gamepad.Buttons & 0x0004) != 0) buttons |= GamepadButtons.DPadLeft;
+        if ((gamepad.Buttons & 0x0008) != 0) buttons |= GamepadButtons.DPadRight;
+
+        return new GamepadState(
+            buttons,
+            NormalizeStick(gamepad.LeftThumbX),
+            NormalizeStick(gamepad.LeftThumbY),
+            NormalizeStick(gamepad.RightThumbX),
+            NormalizeStick(gamepad.RightThumbY),
+            NormalizeTrigger(gamepad.LeftTrigger),
+            NormalizeTrigger(gamepad.RightTrigger));
+    }
+
+    private static double NormalizeStick(short value)
+    {
+        return value < 0
+            ? Math.Max(value / 32768.0, -1.0)
+            : Math.Min(value / 32767.0, 1.0);
+    }
+
+    private static double NormalizeTrigger(byte value)
+    {
+        return value / 255.0;
+    }
+
     private static bool KeyPressed(IReadOnlySet<Key> pressedKeys, Key key) => key != Key.None && pressedKeys.Contains(key);
 
-    private static bool ButtonPressed(IReadOnlyList<bool> buttons, int index) => index >= 0 && index < buttons.Count && buttons[index];
+    [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState", CallingConvention = CallingConvention.Winapi)]
+    private static extern uint XInputGetState(uint userIndex, out XInputState state);
 
-    private static bool IsUp(GameControllerSwitchPosition value) =>
-        value is GameControllerSwitchPosition.Up or GameControllerSwitchPosition.UpLeft or GameControllerSwitchPosition.UpRight;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XInputState
+    {
+        public uint PacketNumber;
+        public XInputGamepad Gamepad;
+    }
 
-    private static bool IsDown(GameControllerSwitchPosition value) =>
-        value is GameControllerSwitchPosition.Down or GameControllerSwitchPosition.DownLeft or GameControllerSwitchPosition.DownRight;
+    [StructLayout(LayoutKind.Sequential)]
+    private struct XInputGamepad
+    {
+        public ushort Buttons;
+        public byte LeftTrigger;
+        public byte RightTrigger;
+        public short LeftThumbX;
+        public short LeftThumbY;
+        public short RightThumbX;
+        public short RightThumbY;
+    }
 
-    private static bool IsLeft(GameControllerSwitchPosition value) =>
-        value is GameControllerSwitchPosition.Left or GameControllerSwitchPosition.UpLeft or GameControllerSwitchPosition.DownLeft;
-
-    private static bool IsRight(GameControllerSwitchPosition value) =>
-        value is GameControllerSwitchPosition.Right or GameControllerSwitchPosition.UpRight or GameControllerSwitchPosition.DownRight;
+    private readonly record struct GamepadState(
+        GamepadButtons Buttons,
+        double LeftThumbstickX,
+        double LeftThumbstickY,
+        double RightThumbstickX,
+        double RightThumbstickY,
+        double LeftTrigger,
+        double RightTrigger);
 }

@@ -1,7 +1,24 @@
 using Avalonia.Input;
-using Windows.Gaming.Input;
 
 namespace NesEmu.App;
+
+[Flags]
+public enum GamepadButtons
+{
+    None = 0,
+    A = 1 << 0,
+    B = 1 << 1,
+    X = 1 << 2,
+    Y = 1 << 3,
+    View = 1 << 4,
+    Menu = 1 << 5,
+    LeftShoulder = 1 << 6,
+    RightShoulder = 1 << 7,
+    DPadUp = 1 << 8,
+    DPadDown = 1 << 9,
+    DPadLeft = 1 << 10,
+    DPadRight = 1 << 11
+}
 
 public enum ControllerDeviceSource
 {
