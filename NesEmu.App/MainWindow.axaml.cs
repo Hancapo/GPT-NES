@@ -45,7 +45,7 @@ public partial class MainWindow : Window
         AddHandler(KeyDownEvent, PreviewKeyDownHandler, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyUpEvent, PreviewKeyUpHandler, RoutingStrategies.Tunnel, handledEventsToo: true);
 
-        Opened += MainWindow_OnOpened;
+        Opened += (_, _) => CaptureGameInput();
         Closing += MainWindow_OnClosing;
         Activated += (_, _) => CaptureGameInput();
         Deactivated += (_, _) => _inputState.Clear();
@@ -53,21 +53,6 @@ public partial class MainWindow : Window
         SetTransportEnabled(false);
         ClearViewport();
         UpdateUiState();
-    }
-
-    private async void MainWindow_OnOpened(object? sender, EventArgs e)
-    {
-        CaptureGameInput();
-
-        var romPath = FindDefaultRom();
-        if (romPath is not null)
-        {
-            LoadRom(romPath);
-            return;
-        }
-
-        StatusText.Text = "No ROM loaded.";
-        await Task.CompletedTask;
     }
 
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
@@ -388,33 +373,4 @@ public partial class MainWindow : Window
             or Key.Z or Key.X or Key.J or Key.K
             or Key.Enter or Key.LeftShift or Key.RightShift;
 
-    private static string? FindDefaultRom()
-    {
-        foreach (var root in CandidateRoots())
-        {
-            var rom = Directory.EnumerateFiles(root, "*.nes", SearchOption.TopDirectoryOnly).FirstOrDefault();
-            if (rom is not null)
-            {
-                return rom;
-            }
-        }
-
-        return null;
-    }
-
-    private static IEnumerable<string> CandidateRoots()
-    {
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var root in new[] { Environment.CurrentDirectory, AppContext.BaseDirectory })
-        {
-            var current = new DirectoryInfo(root);
-            for (var depth = 0; current is not null && depth < 6; depth++, current = current.Parent)
-            {
-                if (seen.Add(current.FullName))
-                {
-                    yield return current.FullName;
-                }
-            }
-        }
-    }
 }
