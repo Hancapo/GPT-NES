@@ -35,4 +35,35 @@ public sealed class TriangleChannelBehaviorTests
 
         Assert.Equal(afterDisable, apu.GetCurrentRawSample(), 6);
     }
+
+    [Fact]
+    public void TriangleOutput_TimerZeroUsesStableAverageLevel()
+    {
+        var apu = new Apu2A03(NesConsole.AudioSampleRate);
+
+        apu.WriteRegister(0x4015, 0x04);
+        apu.WriteRegister(0x4008, 0x81);
+        apu.WriteRegister(0x400A, 0x00);
+        apu.WriteRegister(0x400B, 0x08);
+        apu.WriteRegister(0x4017, 0x80);
+
+        for (var i = 0; i < 1024; i++)
+        {
+            apu.Clock();
+        }
+
+        var min = float.MaxValue;
+        var max = float.MinValue;
+
+        for (var i = 0; i < 128; i++)
+        {
+            apu.Clock();
+            var sample = apu.GetCurrentRawSample();
+            min = Math.Min(min, sample);
+            max = Math.Max(max, sample);
+        }
+
+        Assert.True(max - min < 0.0001f, $"Se esperaba un nivel estable para timer=0, pero el rango fue {max - min}.");
+        Assert.True(max > 0.0f);
+    }
 }

@@ -717,7 +717,7 @@ public sealed class Apu2A03
 
         public bool IsAudible => Enabled && _lengthCounter > 0 && _linearCounter > 0 && _timerPeriod > 1;
 
-        public int Output => _dacValue;
+        public float Output => IsUltrasonicSilenceActive ? 7.5f : _dacValue;
 
         public void Reset()
         {
@@ -798,6 +798,8 @@ public sealed class Apu2A03
                 _lengthCounter--;
             }
         }
+
+        private bool IsUltrasonicSilenceActive => _enabled && _lengthCounter > 0 && _linearCounter > 0 && _timerPeriod <= 1;
     }
 
     private sealed class NoiseChannel

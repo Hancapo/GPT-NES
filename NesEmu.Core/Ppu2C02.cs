@@ -395,7 +395,7 @@ public sealed class Ppu2C02
                 : ReadPalette((byte)(0x10 + (spritePalette << 2) + spritePixel));
         }
 
-        _frameBuffer[y * NesVideoConstants.Width + x] = NesPalette.Argb32[paletteIndex & 0x3F];
+        _frameBuffer[y * NesVideoConstants.Width + x] = NesPalette.GetArgb32(paletteIndex, _mask);
     }
 
     private void GetSpritePixel(ref byte spritePixel, ref byte spritePalette, ref bool spriteBehindBackground, ref bool spriteZeroHitPossible)
