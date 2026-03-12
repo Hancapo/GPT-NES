@@ -55,6 +55,24 @@ public sealed class CpuBusBehaviorTests
         Assert.Equal(0xE0, console.CpuRead(0x5000));
     }
 
+    [Fact]
+    public void ConsecutiveControllerReads_DoNotAdvanceLatchTwice()
+    {
+        using var context = CreateConsole();
+        var console = context.Console;
+
+        console.SetControllerState(0, new ControllerState(A: true, B: true, Select: false, Start: false, Up: false, Down: false, Left: false, Right: false));
+        console.CpuWrite(0x4016, 0x01);
+        console.CpuWrite(0x4016, 0x00);
+
+        Assert.Equal(0x01, console.CpuRead(0x4016) & 0x01);
+        Assert.Equal(0x01, console.CpuRead(0x4016) & 0x01);
+
+        _ = console.CpuRead(0x5000);
+
+        Assert.Equal(0x01, console.CpuRead(0x4016) & 0x01);
+    }
+
     private static TestConsoleContext CreateConsole()
     {
         var romPath = CreateTestRom(mapperId: 0, prgBanks: 1, chrBanks: 1);

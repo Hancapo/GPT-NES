@@ -24,6 +24,8 @@ public sealed class NesConsole : ICpuBus, IDisposable
     private double _sampleValueAccumulator;
     private int _sampleValueCount;
     private byte _cpuOpenBus;
+    private bool _lastCpuBusWasRead;
+    private ushort _lastCpuBusAddress;
 
     public NesConsole(CartridgeImage cartridge)
     {
@@ -50,6 +52,8 @@ public sealed class NesConsole : ICpuBus, IDisposable
         _sampleValueAccumulator = 0;
         _sampleValueCount = 0;
         _cpuOpenBus = 0;
+        _lastCpuBusWasRead = false;
+        _lastCpuBusAddress = 0;
         lock (_audioLock)
         {
             _audioSamples.Clear();
@@ -114,23 +118,41 @@ public sealed class NesConsole : ICpuBus, IDisposable
     public byte CpuRead(ushort address)
     {
         address &= 0xFFFF;
-
-        return address switch
+        byte value;
+        switch (address)
         {
-            <= 0x1FFF => LatchCpuOpenBus(_cpuRam[address & 0x07FF]),
-            <= 0x3FFF => LatchCpuOpenBus(_ppu.CpuRead((ushort)(0x2000 | (address & 0x0007)))),
-            0x4015 => ReadApuStatus(),
-            0x4016 => LatchCpuOpenBus(_controller1.Read(_cpuOpenBus)),
-            0x4017 => LatchCpuOpenBus(_controller2.Read(_cpuOpenBus)),
-            >= 0x6000 => LatchCpuOpenBus(_cartridge.CpuRead(address)),
-            _ => _cpuOpenBus
-        };
+            case <= 0x1FFF:
+                value = LatchCpuOpenBus(_cpuRam[address & 0x07FF]);
+                break;
+            case <= 0x3FFF:
+                value = LatchCpuOpenBus(_ppu.CpuRead((ushort)(0x2000 | (address & 0x0007))));
+                break;
+            case 0x4015:
+                value = ReadApuStatus();
+                break;
+            case 0x4016:
+                value = LatchCpuOpenBus(_controller1.Read(_cpuOpenBus, IsConsecutiveControllerRead(address)));
+                break;
+            case 0x4017:
+                value = LatchCpuOpenBus(_controller2.Read(_cpuOpenBus, IsConsecutiveControllerRead(address)));
+                break;
+            case >= 0x6000:
+                value = LatchCpuOpenBus(_cartridge.CpuRead(address));
+                break;
+            default:
+                value = _cpuOpenBus;
+                break;
+        }
+
+        RecordCpuBusAccess(read: true, address);
+        return value;
     }
 
     public void CpuWrite(ushort address, byte value)
     {
         address &= 0xFFFF;
         _cpuOpenBus = value;
+        RecordCpuBusAccess(read: false, address);
 
         switch (address)
         {
@@ -230,5 +252,13 @@ public sealed class NesConsole : ICpuBus, IDisposable
     {
         var status = _apu.ReadStatus();
         return (byte)((status & 0xDF) | (_cpuOpenBus & 0x20));
+    }
+
+    private bool IsConsecutiveControllerRead(ushort address) => _lastCpuBusWasRead && _lastCpuBusAddress == address;
+
+    private void RecordCpuBusAccess(bool read, ushort address)
+    {
+        _lastCpuBusWasRead = read;
+        _lastCpuBusAddress = address;
     }
 }

@@ -5,7 +5,7 @@ public sealed class Apu2A03
     private const int FourStepQuarter1CpuCycle = 7457;
     private const int FourStepHalf1CpuCycle = 14913;
     private const int FourStepQuarter2CpuCycle = 22371;
-    private const int FourStepHalf2CpuCycle = 29829;
+    private const int FourStepHalf2CpuCycle = 29828;
     private const int FourStepResetCpuCycle = 29830;
 
     private const int FiveStepQuarter1CpuCycle = 7457;
@@ -58,6 +58,7 @@ public sealed class Apu2A03
     private bool _fiveStepMode;
     private bool _irqInhibit;
     private bool _frameIrqPending;
+    private bool _frameIrqClearPending;
 
     public Apu2A03(int sampleRate)
     {
@@ -80,6 +81,7 @@ public sealed class Apu2A03
         _fiveStepMode = false;
         _irqInhibit = false;
         _frameIrqPending = false;
+        _frameIrqClearPending = false;
         _highPass90.Reset();
         _highPass440.Reset();
         _lowPass14k.Reset();
@@ -87,6 +89,12 @@ public sealed class Apu2A03
 
     public void Clock()
     {
+        if (_frameIrqClearPending)
+        {
+            _frameIrqPending = false;
+            _frameIrqClearPending = false;
+        }
+
         _cpuCycles++;
         _frameCounterCpuCycles++;
 
@@ -202,7 +210,7 @@ public sealed class Apu2A03
             status |= 0x40;
         }
 
-        _frameIrqPending = false;
+        _frameIrqClearPending = true;
         return status;
     }
 
@@ -291,6 +299,7 @@ public sealed class Apu2A03
         if (_irqInhibit)
         {
             _frameIrqPending = false;
+            _frameIrqClearPending = false;
         }
 
         if (_fiveStepMode)

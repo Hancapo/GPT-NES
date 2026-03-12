@@ -18,15 +18,20 @@ public sealed class ControllerPort
         }
     }
 
-    public byte Read(byte openBus)
+    public byte Read(byte openBus, bool consecutiveRead)
     {
         if (_strobe)
         {
             _latchedState = State.ToByte();
+            return (byte)((_latchedState & 0x01) | (openBus & 0xE0));
         }
 
         var value = (byte)((_latchedState & 0x01) | (openBus & 0xE0));
-        _latchedState = (byte)((_latchedState >> 1) | 0x80);
+        if (!consecutiveRead)
+        {
+            _latchedState = (byte)((_latchedState >> 1) | 0x80);
+        }
+
         return value;
     }
 }
