@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="NesEmu.App/NesEmu.App.csproj" />
+  <Project Path="NesEmu.Core/NesEmu.Core.csproj" />
+  <Project Path="NesEmu.Tests/NesEmu.Tests.csproj" />
+</Solution>

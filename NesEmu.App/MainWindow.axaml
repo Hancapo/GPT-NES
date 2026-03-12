@@ -1,0 +1,154 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d"
+        x:Class="NesEmu.App.MainWindow"
+        Width="1200"
+        Height="820"
+        MinWidth="860"
+        MinHeight="620"
+        Background="#1E1E1E"
+        Foreground="#F3F3F3"
+        FontFamily="Segoe UI"
+        UseLayoutRounding="True"
+        Title="NesEmu">
+  <Window.Styles>
+    <Style Selector="Button.toolbar">
+      <Setter Property="Margin" Value="0,0,8,0" />
+      <Setter Property="Padding" Value="14,7" />
+      <Setter Property="MinWidth" Value="88" />
+    </Style>
+    <Style Selector="TextBlock.status">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Margin" Value="0,0,14,0" />
+      <Setter Property="FontSize" Value="12" />
+    </Style>
+  </Window.Styles>
+
+  <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Menu Grid.Row="0">
+      <MenuItem Header="_Archivo">
+        <MenuItem Header="_Abrir ROM..." Click="OpenRomButton_OnClick" />
+        <Separator />
+        <MenuItem Header="_Salir" Click="ExitMenuItem_OnClick" />
+      </MenuItem>
+      <MenuItem Header="_Emulación">
+        <MenuItem x:Name="PauseMenuItem" Header="_Pausar" Click="PauseButton_OnClick" />
+        <MenuItem x:Name="StopMenuItem" Header="_Detener" Click="StopButton_OnClick" />
+        <MenuItem x:Name="ResetMenuItem" Header="_Reset" Click="ResetButton_OnClick" />
+      </MenuItem>
+    </Menu>
+
+    <Border Grid.Row="1"
+            Background="#2A2A2A"
+            BorderBrush="#3B3B3B"
+            BorderThickness="0,0,0,1"
+            Padding="10,8">
+      <DockPanel LastChildFill="True">
+        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+          <Button x:Name="OpenRomButton"
+                  Classes="toolbar"
+                  Focusable="False"
+                  Content="Abrir"
+                  Click="OpenRomButton_OnClick" />
+          <Button x:Name="PauseButton"
+                  Classes="toolbar"
+                  Focusable="False"
+                  Content="Pausar"
+                  Click="PauseButton_OnClick" />
+          <Button x:Name="StopButton"
+                  Classes="toolbar"
+                  Focusable="False"
+                  Content="Detener"
+                  Click="StopButton_OnClick" />
+          <Button x:Name="ResetButton"
+                  Classes="toolbar"
+                  Focusable="False"
+                  Content="Reset"
+                  Click="ResetButton_OnClick" />
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText"
+                   VerticalAlignment="Center"
+                   FontSize="12"
+                   Opacity="0.72"
+                   Text="Sin ROM cargada." />
+      </DockPanel>
+    </Border>
+
+    <Border Grid.Row="2"
+            Margin="12"
+            Background="#151515"
+            BorderBrush="#3A3A3A"
+            BorderThickness="1"
+            CornerRadius="8">
+      <Grid>
+        <Border x:Name="GameViewport"
+                Background="#0A0A0A"
+                CornerRadius="7"
+                Focusable="True"
+                PointerPressed="GameViewport_OnPointerPressed">
+          <Grid>
+            <Viewbox Stretch="Uniform"
+                     StretchDirection="Both"
+                     HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
+                     RenderOptions.BitmapInterpolationMode="None">
+              <Border Background="#000000"
+                      BorderBrush="#262626"
+                      BorderThickness="16"
+                      CornerRadius="4">
+                <Image x:Name="GameImage"
+                       Width="256"
+                       Height="240"
+                       Stretch="Fill"
+                       RenderOptions.BitmapInterpolationMode="None" />
+              </Border>
+            </Viewbox>
+
+            <Border x:Name="OverlayPanel"
+                    Width="320"
+                    Padding="18"
+                    CornerRadius="10"
+                    Background="#CC1B1B1B"
+                    BorderBrush="#4A4A4A"
+                    BorderThickness="1"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+              <StackPanel Spacing="12">
+                <TextBlock x:Name="OverlayTitleText"
+                           FontSize="22"
+                           FontWeight="SemiBold"
+                           HorizontalAlignment="Center"
+                           Text="NesEmu" />
+                <TextBlock x:Name="OverlayBodyText"
+                           TextAlignment="Center"
+                           Opacity="0.78"
+                           Text="Abre una ROM NES para empezar." />
+                <Button x:Name="OverlayOpenButton"
+                        HorizontalAlignment="Center"
+                        Width="120"
+                        Content="Abrir ROM"
+                        Click="OpenRomButton_OnClick" />
+              </StackPanel>
+            </Border>
+          </Grid>
+        </Border>
+      </Grid>
+    </Border>
+
+    <Border Grid.Row="3"
+            Background="#252525"
+            BorderBrush="#3B3B3B"
+            BorderThickness="0,1,0,0"
+            Padding="10,6">
+      <DockPanel LastChildFill="False">
+        <TextBlock x:Name="RunStateText" Classes="status" DockPanel.Dock="Left" Text="Sin ROM" />
+        <TextBlock x:Name="FpsText" Classes="status" DockPanel.Dock="Left" Text="FPS: 0.0" />
+        <TextBlock x:Name="RomText" Classes="status" DockPanel.Dock="Left" Text="ROM: -" />
+        <TextBlock x:Name="RenderStatusText" Classes="status" DockPanel.Dock="Right" Text="Imagen crisp" />
+      </DockPanel>
+    </Border>
+  </Grid>
+</Window>
