@@ -59,6 +59,11 @@ public sealed class Apu2A03
     private readonly HighPassFilter _highPass90;
     private readonly HighPassFilter _highPass440;
     private readonly LowPassFilter _lowPass14k;
+    private readonly TriggeredSignalSmoother _pulse1Smoother;
+    private readonly TriggeredSignalSmoother _pulse2Smoother;
+    private readonly TriggeredSignalSmoother _triangleSmoother;
+    private readonly TriggeredSignalSmoother _noiseSmoother;
+    private readonly TriggeredSignalSmoother _dmcSmoother;
 
     private long _cpuCycles;
     private int _frameCounterCpuCycles;
@@ -73,6 +78,11 @@ public sealed class Apu2A03
         _highPass90 = new HighPassFilter(90, sampleRate);
         _highPass440 = new HighPassFilter(440, sampleRate);
         _lowPass14k = new LowPassFilter(14_000, sampleRate);
+        _pulse1Smoother = new TriggeredSignalSmoother(sampleRate, TimeSpan.FromMilliseconds(0.35));
+        _pulse2Smoother = new TriggeredSignalSmoother(sampleRate, TimeSpan.FromMilliseconds(0.35));
+        _triangleSmoother = new TriggeredSignalSmoother(sampleRate, TimeSpan.FromMilliseconds(0.20));
+        _noiseSmoother = new TriggeredSignalSmoother(sampleRate, TimeSpan.FromMilliseconds(0.25));
+        _dmcSmoother = new TriggeredSignalSmoother(sampleRate, TimeSpan.FromMilliseconds(0.50));
     }
 
     public bool IrqPending => _frameIrqPending || _dmc.IrqPending;
@@ -93,6 +103,11 @@ public sealed class Apu2A03
         _highPass90.Reset();
         _highPass440.Reset();
         _lowPass14k.Reset();
+        _pulse1Smoother.Reset();
+        _pulse2Smoother.Reset();
+        _triangleSmoother.Reset();
+        _noiseSmoother.Reset();
+        _dmcSmoother.Reset();
     }
 
     public void Clock()
@@ -126,11 +141,11 @@ public sealed class Apu2A03
 
     public float GetCurrentRawSample()
     {
-        var pulse1 = _pulse1.Output;
-        var pulse2 = _pulse2.Output;
-        var triangle = _triangle.Output;
-        var noise = _noise.Output;
-        var dmc = _dmc.Output;
+        var pulse1 = _pulse1Smoother.Process(_pulse1.Output, _pulse1.TriggerVersion);
+        var pulse2 = _pulse2Smoother.Process(_pulse2.Output, _pulse2.TriggerVersion);
+        var triangle = _triangleSmoother.Process(_triangle.Output, _triangle.TriggerVersion);
+        var noise = _noiseSmoother.Process(_noise.Output, _noise.TriggerVersion);
+        var dmc = _dmcSmoother.Process(_dmc.Output, _dmc.TriggerVersion);
 
         var pulseSum = pulse1 + pulse2;
         var pulseOut = pulseSum == 0
@@ -676,6 +691,7 @@ public sealed class Apu2A03
         private ushort _timerCounter;
         private byte _sequenceStep;
         private byte _lengthCounter;
+        private byte _dacValue;
         private int _triggerVersion;
 
         public bool Enabled
@@ -701,7 +717,7 @@ public sealed class Apu2A03
 
         public bool IsAudible => Enabled && _lengthCounter > 0 && _linearCounter > 0 && _timerPeriod > 1;
 
-        public int Output => !Enabled || _lengthCounter == 0 || _linearCounter == 0 ? 0 : TriangleSequence[_sequenceStep];
+        public int Output => _dacValue;
 
         public void Reset()
         {
@@ -714,6 +730,7 @@ public sealed class Apu2A03
             _timerCounter = 0;
             _sequenceStep = 0;
             _lengthCounter = 0;
+            _dacValue = 0;
             _triggerVersion = 0;
         }
 
@@ -748,6 +765,7 @@ public sealed class Apu2A03
                 if (_lengthCounter > 0 && _linearCounter > 0)
                 {
                     _sequenceStep = (byte)((_sequenceStep + 1) & 0x1F);
+                    _dacValue = TriangleSequence[_sequenceStep];
                 }
             }
             else

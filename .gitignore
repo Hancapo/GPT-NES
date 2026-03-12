@@ -48,3 +48,6 @@ Desktop.ini
 *.fla
 *.state
 *.state*
+!Samples/HelloWorld.nes
+Samples/HelloWorld.nes
+Tools/BuildHelloWorldRom.py

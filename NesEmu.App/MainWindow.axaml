@@ -157,16 +157,11 @@
                       BorderThickness="1"
                       CornerRadius="28"
                       Padding="20">
-                <Border Background="#000000"
-                        BorderBrush="#1E293B"
-                        BorderThickness="14"
-                        CornerRadius="20">
                   <Image x:Name="GameImage"
                          Width="256"
                          Height="240"
                          Stretch="Fill"
                          RenderOptions.BitmapInterpolationMode="None" />
-                </Border>
               </Border>
             </Viewbox>
 

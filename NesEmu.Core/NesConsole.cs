@@ -12,6 +12,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     private readonly Cpu6502 _cpu;
     private readonly Ppu2C02 _ppu;
     private readonly Apu2A03 _apu;
+    private readonly StreamingSincResampler _audioResampler;
     private readonly byte[] _cpuRam = new byte[0x800];
     private readonly ControllerPort _controller1 = new();
     private readonly ControllerPort _controller2 = new();
@@ -20,9 +21,6 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 
     private long _cpuCycles;
     private int _dmaStallCycles;
-    private double _sampleAccumulator;
-    private double _sampleValueAccumulator;
-    private int _sampleValueCount;
     private byte _cpuOpenBus;
     private bool _lastCpuBusWasRead;
     private ushort _lastCpuBusAddress;
@@ -31,7 +29,8 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     {
         _cartridge = cartridge;
         _ppu = new Ppu2C02(cartridge);
-        _apu = new Apu2A03(AudioSampleRate, ReadDmcSampleByte);
+        _apu = new Apu2A03((int)Math.Round(CpuFrequency), ReadDmcSampleByte);
+        _audioResampler = new StreamingSincResampler(CpuFrequency, AudioSampleRate);
         _cpu = new Cpu6502(this);
         Reset();
     }
@@ -49,9 +48,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
         _cpu.Reset();
         _cpuCycles = 0;
         _dmaStallCycles = 0;
-        _sampleAccumulator = 0;
-        _sampleValueAccumulator = 0;
-        _sampleValueCount = 0;
+        _audioResampler.Reset();
         _cpuOpenBus = 0;
         _lastCpuBusWasRead = false;
         _lastCpuBusAddress = 0;
@@ -217,28 +214,17 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
     {
         _cpuCycles++;
         _apu.Clock();
-        _sampleValueAccumulator += _apu.GetCurrentRawSample();
-        _sampleValueCount++;
 
-        _sampleAccumulator += AudioSampleRate;
-        while (_sampleAccumulator >= CpuFrequency)
+        if (_audioResampler.AddSample(_apu.GetCurrentSample(), out var outputSample))
         {
-            _sampleAccumulator -= CpuFrequency;
-            var averagedSample = _sampleValueCount == 0
-                ? 0.0f
-                : (float)(_sampleValueAccumulator / _sampleValueCount);
-
             lock (_audioLock)
             {
-                _audioSamples.Enqueue(_apu.ProcessSample(averagedSample));
+                _audioSamples.Enqueue(outputSample);
                 while (_audioSamples.Count > AudioSampleRate)
                 {
                     _audioSamples.Dequeue();
                 }
             }
-
-            _sampleValueAccumulator = 0;
-            _sampleValueCount = 0;
         }
 
         _ppu.Clock();

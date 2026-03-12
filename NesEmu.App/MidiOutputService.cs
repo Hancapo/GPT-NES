@@ -90,6 +90,17 @@ public sealed class MidiOutputService : IDisposable
         }
     }
 
+    public bool IsOutputActive
+    {
+        get
+        {
+            lock (_sync)
+            {
+                return _midiOut is not null && _settings.Enabled;
+            }
+        }
+    }
+
     public string GetStatusText()
     {
         lock (_sync)
@@ -147,6 +158,14 @@ public sealed class MidiOutputService : IDisposable
         lock (_sync)
         {
             _presentationLatency = ClampLatency(latency);
+        }
+    }
+
+    public void ClearPresentationLatency()
+    {
+        lock (_sync)
+        {
+            _presentationLatency = TimeSpan.Zero;
         }
     }
 

@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Threading;
+using NAudio.CoreAudioApi;
 using NAudio.Wave;
 using NesEmu.Core;
 using NesEmu.Core.Cartridge;
@@ -8,7 +10,6 @@ namespace NesEmu.App;
 
 public sealed class EmulatorHost : IDisposable
 {
-    private const int OutputBufferCount = 2;
     private static readonly TimeSpan FrameDuration = TimeSpan.FromSeconds(1.0 / 60.0988138974405);
     private static readonly TimeSpan PreciseSleepMargin = TimeSpan.FromMilliseconds(2);
 
@@ -16,15 +17,13 @@ public sealed class EmulatorHost : IDisposable
     private readonly Action<uint[]> _frameCallback;
     private readonly MidiOutputService _midiOutput;
     private readonly float[] _audioSampleScratch = new float[4096];
-    private byte[] _audioByteScratch = new byte[4096 * sizeof(float)];
     private readonly uint[] _videoFrameScratch = new uint[NesVideoConstants.PixelsPerFrame];
     private float _masterVolumeScale = 1.0f;
 
-    private BufferedWaveProvider _audioBuffer;
-    private WaveOutEvent _waveOut;
+    private AudioWaveProvider _audioBuffer;
+    private IWavePlayer _waveOut;
     private AudioOutputSettings _audioSettings;
     private TimeSpan _resumeBufferedDuration;
-    private TimeSpan _minimumBufferedDuration;
     private TimeSpan _targetBufferedDuration;
     private TimeSpan _maximumBufferedDuration;
 
@@ -239,7 +238,7 @@ public sealed class EmulatorHost : IDisposable
             if (_console is null || _paused || _stopped)
             {
                 PausePlaybackIfNeeded();
-                _midiOutput.SetPresentationLatency(TimeSpan.Zero);
+                _midiOutput.ClearPresentationLatency();
                 await Task.Delay(16, cancellationToken);
                 nextFrameTime = stopwatch.Elapsed;
                 continue;
@@ -248,9 +247,13 @@ public sealed class EmulatorHost : IDisposable
             _console.SetControllerState(0, _inputProvider());
             _console.RunFrame();
             PumpAudio();
-            PrimePlaybackIfReady();
-            _midiOutput.SetPresentationLatency(EstimatePresentationLatency());
-            _midiOutput.ProcessFrame(_console.CaptureApuTapSnapshot());
+            UpdatePlaybackState();
+
+            if (_midiOutput.IsOutputActive)
+            {
+                _midiOutput.SetPresentationLatency(EstimatePresentationLatency());
+                _midiOutput.ProcessFrame(_console.CaptureApuTapSnapshot());
+            }
 
             _console.FrameBuffer.CopyTo(_videoFrameScratch);
             _frameCallback(_videoFrameScratch);
@@ -289,21 +292,20 @@ public sealed class EmulatorHost : IDisposable
                 break;
             }
 
-            var byteCount = count * sizeof(float);
-            if (_audioByteScratch.Length < byteCount)
-            {
-                _audioByteScratch = new byte[byteCount];
-            }
-
             ApplyMasterVolume(_audioSampleScratch.AsSpan(0, count));
-            Buffer.BlockCopy(_audioSampleScratch, 0, _audioByteScratch, 0, byteCount);
-            _audioBuffer.AddSamples(_audioByteScratch, 0, byteCount);
+            _audioBuffer.WriteSamples(_audioSampleScratch.AsSpan(0, count));
         }
     }
 
-    private void PrimePlaybackIfReady()
+    private void UpdatePlaybackState()
     {
-        if (_playbackPrimed || _audioBuffer.BufferedDuration < _resumeBufferedDuration)
+        var bufferedDuration = _audioBuffer.BufferedDuration;
+        if (_playbackPrimed && _waveOut.PlaybackState == PlaybackState.Playing)
+        {
+            return;
+        }
+
+        if (bufferedDuration < _resumeBufferedDuration)
         {
             return;
         }
@@ -324,21 +326,13 @@ public sealed class EmulatorHost : IDisposable
     {
         PausePlaybackIfNeeded();
         ClearAudioBuffer();
-        _midiOutput.SetPresentationLatency(TimeSpan.Zero);
+        _midiOutput.ClearPresentationLatency();
+        _playbackPrimed = false;
     }
 
     private void ClearAudioBuffer()
     {
-        if (_audioBuffer.BufferedBytes == 0)
-        {
-            return;
-        }
-
-        var discard = new byte[Math.Max(_audioBuffer.WaveFormat.AverageBytesPerSecond / 4, 4096)];
-        while (_audioBuffer.BufferedBytes > 0)
-        {
-            _audioBuffer.Read(discard, 0, Math.Min(discard.Length, _audioBuffer.BufferedBytes));
-        }
+        _audioBuffer.Clear();
     }
 
     private TimeSpan EstimatePresentationLatency()
@@ -355,12 +349,12 @@ public sealed class EmulatorHost : IDisposable
     private void ConfigureAudioTiming(AudioOutputSettings settings)
     {
         var latency = Math.Clamp(settings.OutputLatencyMilliseconds, 40, 240);
-        var minimum = Math.Max(32, (int)Math.Round(latency * 0.65));
-        var target = Math.Max(minimum + 10, (int)Math.Round(latency * 0.90));
-        var resume = Math.Max(target + 8, latency);
-        var maximum = Math.Max(resume + 72, latency * 2);
+        var frameMs = FrameDuration.TotalMilliseconds;
+        var minimum = Math.Max((int)Math.Ceiling(frameMs * 1.25), (int)Math.Round(latency * 0.45));
+        var target = Math.Max(minimum + (int)Math.Ceiling(frameMs), (int)Math.Round(latency * 0.72));
+        var resume = Math.Max(target + (int)Math.Ceiling(frameMs * 0.5), (int)Math.Round(latency * 0.90));
+        var maximum = Math.Max(resume + (int)Math.Ceiling(frameMs * 4), (int)Math.Round(latency * 1.70));
 
-        _minimumBufferedDuration = TimeSpan.FromMilliseconds(minimum);
         _targetBufferedDuration = TimeSpan.FromMilliseconds(target);
         _resumeBufferedDuration = TimeSpan.FromMilliseconds(resume);
         _maximumBufferedDuration = TimeSpan.FromMilliseconds(maximum);
@@ -375,26 +369,50 @@ public sealed class EmulatorHost : IDisposable
         };
     }
 
-    private static (BufferedWaveProvider Buffer, WaveOutEvent WaveOut) CreateAudioOutput(AudioOutputSettings settings)
+    private static (AudioWaveProvider Buffer, IWavePlayer WaveOut) CreateAudioOutput(AudioOutputSettings settings)
     {
         var normalized = NormalizeAudioSettings(settings);
-        var bufferDuration = TimeSpan.FromMilliseconds(Math.Max(normalized.OutputLatencyMilliseconds * 4, 220));
+        var bufferDuration = TimeSpan.FromMilliseconds(Math.Max(normalized.OutputLatencyMilliseconds * 3, 180));
+        var audioBuffer = new AudioWaveProvider(
+            WaveFormat.CreateIeeeFloatWaveFormat(NesConsole.AudioSampleRate, 1),
+            bufferDuration);
 
-        var audioBuffer = new BufferedWaveProvider(WaveFormat.CreateIeeeFloatWaveFormat(NesConsole.AudioSampleRate, 1))
+        var wasapiEvent = TryCreateWasapi(audioBuffer, normalized.OutputLatencyMilliseconds, useEventSync: true);
+        if (wasapiEvent is not null)
         {
-            BufferDuration = bufferDuration,
-            DiscardOnBufferOverflow = true,
-            ReadFully = true
-        };
+            return (audioBuffer, wasapiEvent);
+        }
+
+        var wasapiPush = TryCreateWasapi(audioBuffer, normalized.OutputLatencyMilliseconds, useEventSync: false);
+        if (wasapiPush is not null)
+        {
+            return (audioBuffer, wasapiPush);
+        }
 
         var waveOut = new WaveOutEvent
         {
             DesiredLatency = normalized.OutputLatencyMilliseconds,
-            NumberOfBuffers = OutputBufferCount
+            NumberOfBuffers = 2
         };
 
         waveOut.Init(audioBuffer);
         return (audioBuffer, waveOut);
+    }
+
+    private static WasapiOut? TryCreateWasapi(IWaveProvider audioBuffer, int latencyMilliseconds, bool useEventSync)
+    {
+        WasapiOut? wasapi = null;
+        try
+        {
+            wasapi = new WasapiOut(AudioClientShareMode.Shared, useEventSync, latencyMilliseconds);
+            wasapi.Init(audioBuffer);
+            return wasapi;
+        }
+        catch
+        {
+            wasapi?.Dispose();
+            return null;
+        }
     }
 
     private static async Task WaitForNextFrameAsync(Stopwatch stopwatch, TimeSpan targetTime, CancellationToken cancellationToken)
@@ -429,6 +447,54 @@ public sealed class EmulatorHost : IDisposable
         for (var i = 0; i < samples.Length; i++)
         {
             samples[i] = Math.Clamp(samples[i] * _masterVolumeScale, -1.0f, 1.0f);
+        }
+    }
+
+    private sealed class AudioWaveProvider : IWaveProvider
+    {
+        private readonly AudioSampleBuffer _buffer;
+        private float[] _renderScratch = new float[4096];
+
+        public AudioWaveProvider(WaveFormat waveFormat, TimeSpan bufferDuration)
+        {
+            WaveFormat = waveFormat;
+            _buffer = new AudioSampleBuffer(waveFormat.SampleRate, bufferDuration);
+        }
+
+        public WaveFormat WaveFormat { get; }
+
+        public TimeSpan BufferedDuration => _buffer.BufferedDuration;
+
+        public void WriteSamples(ReadOnlySpan<float> samples)
+        {
+            _buffer.Write(samples);
+        }
+
+        public void Clear()
+        {
+            _buffer.Clear();
+            _buffer.ResetRendering();
+        }
+
+        public int Read(byte[] buffer, int offset, int count)
+        {
+            var sampleCount = count / sizeof(float);
+            if (_renderScratch.Length < sampleCount)
+            {
+                _renderScratch = new float[sampleCount];
+            }
+
+            var renderSpan = _renderScratch.AsSpan(0, sampleCount);
+            _buffer.Render(renderSpan);
+
+            MemoryMarshal.AsBytes(renderSpan).CopyTo(buffer.AsSpan(offset, sampleCount * sizeof(float)));
+            var trailingBytes = count - (sampleCount * sizeof(float));
+            if (trailingBytes > 0)
+            {
+                buffer.AsSpan(offset + (sampleCount * sizeof(float)), trailingBytes).Clear();
+            }
+
+            return count;
         }
     }
 }
