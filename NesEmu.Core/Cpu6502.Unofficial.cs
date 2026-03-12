@@ -145,13 +145,24 @@ public sealed partial class Cpu6502
         return cycles;
     }
 
-    private ushort ImmediateAddress() => ProgramCounter++;
-    private ushort ZeroPageAddress() => Read(ProgramCounter++);
+    private ushort ImmediateAddress()
+    {
+        PollInterrupts();
+        return ProgramCounter++;
+    }
+
+    private ushort ZeroPageAddress()
+    {
+        var address = Read(ProgramCounter++);
+        PollInterrupts();
+        return address;
+    }
 
     private ushort ZeroPageXAddress()
     {
         var baseAddress = Read(ProgramCounter++);
         DummyRead(baseAddress);
+        PollInterrupts();
         return (byte)(baseAddress + X);
     }
 
@@ -159,43 +170,56 @@ public sealed partial class Cpu6502
     {
         var baseAddress = Read(ProgramCounter++);
         DummyRead(baseAddress);
+        PollInterrupts();
         return (byte)(baseAddress + Y);
     }
 
     private ushort AbsoluteAddress()
     {
-        var address = ReadWord(ProgramCounter);
-        ProgramCounter += 2;
+        var address = ReadAbsoluteBaseAddress();
+        PollInterrupts();
         return address;
     }
 
     private ushort AbsoluteXAddress()
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
+        PollInterrupts();
         return (ushort)(baseAddress + X);
     }
 
     private ushort AbsoluteYAddress()
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
+        PollInterrupts();
         return (ushort)(baseAddress + Y);
     }
 
     private ushort AbsoluteXAddress(out int extraCycle)
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
         var address = (ushort)(baseAddress + X);
         extraCycle = IsPageCrossed(baseAddress, address) ? 1 : 0;
-        if (extraCycle != 0) DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        if (extraCycle != 0)
+        {
+            DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        }
+
+        PollInterrupts();
         return address;
     }
 
     private ushort AbsoluteYAddress(out int extraCycle)
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
         var address = (ushort)(baseAddress + Y);
         extraCycle = IsPageCrossed(baseAddress, address) ? 1 : 0;
-        if (extraCycle != 0) DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        if (extraCycle != 0)
+        {
+            DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        }
+
+        PollInterrupts();
         return address;
     }
 
@@ -204,17 +228,19 @@ public sealed partial class Cpu6502
 
     private (ushort BaseAddress, ushort Address) AbsoluteXWriteAddressWithBase()
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
         var address = (ushort)(baseAddress + X);
         DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        PollInterrupts();
         return (baseAddress, address);
     }
 
     private (ushort BaseAddress, ushort Address) AbsoluteYWriteAddressWithBase()
     {
-        var baseAddress = AbsoluteAddress();
+        var baseAddress = ReadAbsoluteBaseAddress();
         var address = (ushort)(baseAddress + Y);
         DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        PollInterrupts();
         return (baseAddress, address);
     }
 
@@ -222,8 +248,9 @@ public sealed partial class Cpu6502
     {
         var baseAddress = Read(ProgramCounter++);
         DummyRead(baseAddress);
-        var zp = (byte)(baseAddress + X);
-        return ReadZeroPageWord(zp);
+        var address = ReadZeroPageWord((byte)(baseAddress + X));
+        PollInterrupts();
+        return address;
     }
 
     private ushort IndirectIndexedAddress(out int extraCycle)
@@ -232,7 +259,12 @@ public sealed partial class Cpu6502
         var baseAddress = ReadZeroPageWord(zp);
         var address = (ushort)(baseAddress + Y);
         extraCycle = IsPageCrossed(baseAddress, address) ? 1 : 0;
-        if (extraCycle != 0) DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        if (extraCycle != 0)
+        {
+            DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        }
+
+        PollInterrupts();
         return address;
     }
 
@@ -244,6 +276,7 @@ public sealed partial class Cpu6502
         var baseAddress = ReadZeroPageWord(zp);
         var address = (ushort)(baseAddress + Y);
         DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        PollInterrupts();
         return (baseAddress, address);
     }
 
@@ -252,7 +285,8 @@ public sealed partial class Cpu6502
         var zp = Read(ProgramCounter++);
         var baseAddress = ReadZeroPageWord(zp);
         var address = (ushort)(baseAddress + Y);
-        if (IsPageCrossed(baseAddress, address)) DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        DummyRead(IndexedPageWrappedAddress(baseAddress, address));
+        PollInterrupts();
         return (baseAddress, address);
     }
 
@@ -263,10 +297,35 @@ public sealed partial class Cpu6502
         return (ushort)(lo | (hi << 8));
     }
 
+    private ushort ReadAbsoluteBaseAddress()
+    {
+        var lo = Read(ProgramCounter++);
+        var hi = Read(ProgramCounter++);
+        return (ushort)(lo | (hi << 8));
+    }
+
     private ushort ReadWordBug(ushort address)
     {
         var lo = Read(address);
         var hiAddress = (ushort)((address & 0xFF00) | (byte)(address + 1));
+        var hi = Read(hiAddress);
+        return (ushort)(lo | (hi << 8));
+    }
+
+    private ushort JumpAbsoluteAddress()
+    {
+        var lo = Read(ProgramCounter++);
+        PollInterrupts();
+        var hi = Read(ProgramCounter++);
+        return (ushort)(lo | (hi << 8));
+    }
+
+    private ushort JumpIndirectAddress()
+    {
+        var pointer = ReadAbsoluteBaseAddress();
+        var lo = Read(pointer);
+        PollInterrupts();
+        var hiAddress = (ushort)((pointer & 0xFF00) | (byte)(pointer + 1));
         var hi = Read(hiAddress);
         return (ushort)(lo | (hi << 8));
     }
@@ -290,14 +349,34 @@ public sealed partial class Cpu6502
         var value = Read(address);
         Write(address, value);
         var result = operation(value);
+        PollInterrupts();
         Write(address, result);
         return result;
     }
 
     private void DummyRead(ushort address) => Read(address);
     private void DummyReadStack() => DummyRead((ushort)(0x0100 | StackPointer));
-    private byte Read(ushort address) => _bus.CpuRead(address);
-    private void Write(ushort address, byte value) => _bus.CpuWrite(address, value);
+    private byte Read(ushort address)
+    {
+        var value = _bus.CpuRead(address);
+        _cycleObserver?.OnCpuCycle();
+        return value;
+    }
+
+    private byte ReadRaw(ushort address) => _bus.CpuRead(address);
+
+    private ushort ReadWordRaw(ushort address)
+    {
+        var lo = ReadRaw(address);
+        var hi = ReadRaw((ushort)(address + 1));
+        return (ushort)(lo | (hi << 8));
+    }
+
+    private void Write(ushort address, byte value)
+    {
+        _bus.CpuWrite(address, value);
+        _cycleObserver?.OnCpuCycle();
+    }
 
     private static ushort IndexedPageWrappedAddress(ushort baseAddress, ushort indexedAddress) =>
         (ushort)((baseAddress & 0xFF00) | (indexedAddress & 0x00FF));

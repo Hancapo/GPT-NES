@@ -3,7 +3,7 @@ using NesEmu.Core.Cartridge;
 
 namespace NesEmu.Core;
 
-public sealed class NesConsole : ICpuBus, IDisposable
+public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 {
     public const double CpuFrequency = 1_789_773.0;
     public const int AudioSampleRate = 44_100;
@@ -109,10 +109,20 @@ public sealed class NesConsole : ICpuBus, IDisposable
         }
 
         var cycles = _cpu.Step();
+        if (_cpu.UsesInlineCycleClock)
+        {
+            return;
+        }
+
         for (var i = 0; i < cycles; i++)
         {
             TickHardware();
         }
+    }
+
+    public void OnCpuCycle()
+    {
+        TickHardware();
     }
 
     public byte CpuRead(ushort address)

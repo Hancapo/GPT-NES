@@ -27,7 +27,7 @@ public sealed class Cpu6502Tests
     }
 
     [Fact]
-    public void Jsr_PushesReturnAddressBetweenOperandReads()
+    public void Jsr_PerformsDummyStackReadBeforePushingReturnAddress()
     {
         var (cpu, bus) = CreateCpu(
             0x8000,
@@ -39,6 +39,7 @@ public sealed class Cpu6502Tests
             bus.Accesses,
             access => Assert.Equal(new BusAccess(false, 0x8000, 0x20), access),
             access => Assert.Equal(new BusAccess(false, 0x8001, 0x34), access),
+            access => Assert.Equal(new BusAccess(false, 0x01FD, 0x00), access),
             access => Assert.Equal(new BusAccess(true, 0x01FD, 0x80), access),
             access => Assert.Equal(new BusAccess(true, 0x01FC, 0x02), access),
             access => Assert.Equal(new BusAccess(false, 0x8002, 0x12), access));
@@ -96,6 +97,69 @@ public sealed class Cpu6502Tests
         Assert.Equal(0x06, bus.Memory[0x0520]);
     }
 
+    [Fact]
+    public void Rti_CanTriggerPendingIrqImmediatelyAfterRestoringIFlag()
+    {
+        var (cpu, bus) = CreateCpu(
+            0x8000,
+            0x40); // RTI
+
+        bus.Memory[0x01FE] = 0x20;
+        bus.Memory[0x01FF] = 0x34;
+        bus.Memory[0x0100] = 0x12;
+        bus.SetVector(0xFFFE, 0x9000);
+        bus.SetIrqLine(cpu, asserted: true);
+
+        Assert.Equal(6, cpu.Step());
+        Assert.Equal((ushort)0x1234, cpu.ProgramCounter);
+
+        Assert.Equal(7, cpu.Step());
+        Assert.Equal((ushort)0x9000, cpu.ProgramCounter);
+    }
+
+    [Fact]
+    public void BranchPolling_LatchesTransientIrqThatDropsBeforeNextInstruction()
+    {
+        var (cpu, bus) = CreateCpu(
+            0x8000,
+            0x58,       // CLI
+            0x90, 0x00, // BCC +0
+            0xEA);      // NOP
+
+        bus.SetVector(0xFFFE, 0x9000);
+
+        Assert.Equal(2, cpu.Step());
+
+        bus.ScheduleAction(bus.CycleCount + 1, () => cpu.SetIrqLine(true));
+        bus.ScheduleAction(bus.CycleCount + 2, () => cpu.SetIrqLine(false));
+
+        Assert.Equal(3, cpu.Step());
+        Assert.Equal((ushort)0x8003, cpu.ProgramCounter);
+
+        Assert.Equal(7, cpu.Step());
+        Assert.Equal((ushort)0x9000, cpu.ProgramCounter);
+    }
+
+    [Fact]
+    public void Brk_CanBeHijackedByNmiWhileKeepingBreakFlagInPushedStatus()
+    {
+        var (cpu, bus) = CreateCpu(
+            0x8000,
+            0x00, // BRK
+            0xEA);
+
+        bus.SetVector(0xFFFA, 0x9000);
+        bus.SetVector(0xFFFE, 0xA000);
+        bus.ScheduleAction(4, cpu.RequestNmi);
+
+        Assert.Equal(7, cpu.Step());
+
+        Assert.Equal((ushort)0x9000, cpu.ProgramCounter);
+        Assert.Equal(0x80, bus.Memory[0x01FD]);
+        Assert.Equal(0x02, bus.Memory[0x01FC]);
+        Assert.NotEqual(0, bus.Memory[0x01FB] & (byte)CpuStatusFlags.Break);
+    }
+
     private static (Cpu6502 Cpu, TestBus Bus) CreateCpu(ushort startAddress, params byte[] program)
     {
         var bus = new TestBus();
@@ -112,10 +176,13 @@ public sealed class Cpu6502Tests
 
     private readonly record struct BusAccess(bool IsWrite, ushort Address, byte Value);
 
-    private sealed class TestBus : ICpuBus
+    private sealed class TestBus : ICpuBus, ICpuCycleObserver
     {
         public readonly byte[] Memory = new byte[0x10000];
         public readonly List<BusAccess> Accesses = [];
+        private readonly Dictionary<long, List<Action>> _scheduledActions = [];
+
+        public long CycleCount { get; private set; }
 
         public byte CpuRead(ushort address)
         {
@@ -147,5 +214,28 @@ public sealed class Cpu6502Tests
         public void ClearAccesses() => Accesses.Clear();
 
         public void SetIrqLine(Cpu6502 cpu, bool asserted) => cpu.SetIrqLine(asserted);
+
+        public void ScheduleAction(long cycle, Action action)
+        {
+            if (!_scheduledActions.TryGetValue(cycle, out var actions))
+            {
+                actions = [];
+                _scheduledActions[cycle] = actions;
+            }
+
+            actions.Add(action);
+        }
+
+        public void OnCpuCycle()
+        {
+            CycleCount++;
+            if (_scheduledActions.Remove(CycleCount, out var actions))
+            {
+                foreach (var action in actions)
+                {
+                    action();
+                }
+            }
+        }
     }
 }

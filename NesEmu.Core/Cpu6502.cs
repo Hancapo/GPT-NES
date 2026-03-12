@@ -3,14 +3,23 @@ namespace NesEmu.Core;
 public sealed partial class Cpu6502
 {
     private readonly ICpuBus _bus;
+    private readonly ICpuCycleObserver? _cycleObserver;
     private bool _nmiRequested;
     private bool _irqLine;
-    private bool _suppressIrqForNextInstruction;
     private bool _halted;
+    private PendingInterrupt _pendingInterrupt;
+
+    private enum PendingInterrupt
+    {
+        None,
+        Irq,
+        Nmi
+    }
 
     public Cpu6502(ICpuBus bus)
     {
         _bus = bus;
+        _cycleObserver = bus as ICpuCycleObserver;
         Status = CpuStatusFlags.InterruptDisable | CpuStatusFlags.Unused;
         StackPointer = 0xFD;
     }
@@ -21,15 +30,16 @@ public sealed partial class Cpu6502
     public byte StackPointer { get; private set; }
     public ushort ProgramCounter { get; private set; }
     public CpuStatusFlags Status { get; private set; }
+    public bool UsesInlineCycleClock => _cycleObserver is not null;
 
     public void Reset()
     {
         StackPointer = 0xFD;
         Status = CpuStatusFlags.InterruptDisable | CpuStatusFlags.Unused;
-        ProgramCounter = ReadWord(0xFFFC);
+        ProgramCounter = ReadWordRaw(0xFFFC);
         _nmiRequested = false;
-        _suppressIrqForNextInstruction = false;
         _halted = false;
+        _pendingInterrupt = PendingInterrupt.None;
     }
 
     public void RequestNmi() => _nmiRequested = true;
@@ -42,18 +52,11 @@ public sealed partial class Cpu6502
             return 1;
         }
 
-        if (_nmiRequested)
+        if (_pendingInterrupt != PendingInterrupt.None)
         {
-            _nmiRequested = false;
-            ServiceInterrupt(0xFFFA, false);
-            return 7;
-        }
-
-        var suppressIrq = _suppressIrqForNextInstruction;
-        _suppressIrqForNextInstruction = false;
-        if (!suppressIrq && _irqLine && !GetFlag(CpuStatusFlags.InterruptDisable))
-        {
-            ServiceInterrupt(0xFFFE, false);
+            var pendingInterrupt = _pendingInterrupt;
+            _pendingInterrupt = PendingInterrupt.None;
+            ServiceInterruptSequence(pendingInterrupt);
             return 7;
         }
 
@@ -140,7 +143,7 @@ public sealed partial class Cpu6502
             0x49 => ExecuteEor(Read(ImmediateAddress()), 2),
             0x4A => ExecuteAccumulator(ShiftRight, 2),
             0x4B => ExecuteAlr(Read(ImmediateAddress()), 2),
-            0x4C => ExecuteJmp(AbsoluteAddress(), 3),
+            0x4C => ExecuteJmp(JumpAbsoluteAddress(), 3),
             0x4D => ExecuteEor(Read(AbsoluteAddress()), 4),
             0x4E => ExecuteModify(AbsoluteAddress(), ShiftRight, 6),
             0x4F => ExecuteSre(AbsoluteAddress(), 6),
@@ -174,7 +177,7 @@ public sealed partial class Cpu6502
             0x69 => ExecuteAdc(Read(ImmediateAddress()), 2),
             0x6A => ExecuteAccumulator(RotateRight, 2),
             0x6B => ExecuteArr(Read(ImmediateAddress()), 2),
-            0x6C => ExecuteJmp(ReadWordBug(AbsoluteAddress()), 5),
+            0x6C => ExecuteJmp(JumpIndirectAddress(), 5),
             0x6D => ExecuteAdc(Read(AbsoluteAddress()), 4),
             0x6E => ExecuteModify(AbsoluteAddress(), RotateRight, 6),
             0x6F => ExecuteRra(AbsoluteAddress(), 6),
@@ -335,7 +338,20 @@ public sealed partial class Cpu6502
     }
 
     private int ExecuteKil() { ProgramCounter--; _halted = true; return 1; }
-    private int ExecuteBrk() { DummyRead(ProgramCounter); ProgramCounter++; ServiceInterrupt(0xFFFE, true); return 7; }
+
+    private int ExecuteBrk()
+    {
+        DummyRead(ProgramCounter);
+        ProgramCounter++;
+        Push((byte)(ProgramCounter >> 8));
+        Push((byte)ProgramCounter);
+        var interruptVector = SelectInterruptVector(PendingInterrupt.Irq);
+        Push(GetPushedStatus(setBreakFlag: true));
+        SetFlag(CpuStatusFlags.InterruptDisable, true);
+        ProgramCounter = ReadInterruptVector(interruptVector);
+        return 7;
+    }
+
     private int ExecuteOra(byte value, int cycles) { Accumulator |= value; SetZeroAndNegative(Accumulator); return cycles; }
     private int ExecuteAnd(byte value, int cycles) { Accumulator &= value; SetZeroAndNegative(Accumulator); return cycles; }
     private int ExecuteEor(byte value, int cycles) { Accumulator ^= value; SetZeroAndNegative(Accumulator); return cycles; }
@@ -365,8 +381,10 @@ public sealed partial class Cpu6502
     private int ExecuteJsr()
     {
         var low = Read(ProgramCounter++);
+        DummyReadStack();
         Push((byte)(ProgramCounter >> 8));
         Push((byte)ProgramCounter);
+        PollInterrupts();
         var high = Read(ProgramCounter++);
         ProgramCounter = (ushort)(low | (high << 8));
         return 6;
@@ -379,6 +397,7 @@ public sealed partial class Cpu6502
         DummyRead(ProgramCounter);
         DummyReadStack();
         Status = SanitizeStatus(Pop());
+        PollInterrupts();
         ProgramCounter = ReadWordFromStack();
         return 6;
     }
@@ -388,33 +407,42 @@ public sealed partial class Cpu6502
         DummyRead(ProgramCounter);
         DummyReadStack();
         var returnAddress = ReadWordFromStack();
+        PollInterrupts();
         DummyRead(returnAddress);
         ProgramCounter = (ushort)(returnAddress + 1);
         return 6;
     }
 
-    private int ExecutePhp() { DummyRead(ProgramCounter); Push((byte)(Status | CpuStatusFlags.Break | CpuStatusFlags.Unused)); return 3; }
+    private int ExecutePhp()
+    {
+        DummyRead(ProgramCounter);
+        PollInterrupts();
+        Push(GetPushedStatus(setBreakFlag: true));
+        return 3;
+    }
 
     private int ExecutePlp()
     {
         DummyRead(ProgramCounter);
         DummyReadStack();
-        var oldInterruptDisable = GetFlag(CpuStatusFlags.InterruptDisable);
+        PollInterrupts();
         Status = SanitizeStatus(Pop());
-        if (oldInterruptDisable && !GetFlag(CpuStatusFlags.InterruptDisable))
-        {
-            _suppressIrqForNextInstruction = true;
-        }
-
         return 4;
     }
 
-    private int ExecutePha() { DummyRead(ProgramCounter); Push(Accumulator); return 3; }
+    private int ExecutePha()
+    {
+        DummyRead(ProgramCounter);
+        PollInterrupts();
+        Push(Accumulator);
+        return 3;
+    }
 
     private int ExecutePla()
     {
         DummyRead(ProgramCounter);
         DummyReadStack();
+        PollInterrupts();
         Accumulator = Pop();
         SetZeroAndNegative(Accumulator);
         return 4;
@@ -422,6 +450,7 @@ public sealed partial class Cpu6502
 
     private int ExecuteBranch(bool condition)
     {
+        PollInterrupts();
         var offset = unchecked((sbyte)Read(ProgramCounter++));
         if (!condition) return 2;
         var previous = ProgramCounter;
@@ -429,6 +458,7 @@ public sealed partial class Cpu6502
         DummyRead(ProgramCounter);
         if (IsPageCrossed(previous, target))
         {
+            PollInterrupts();
             DummyRead(IndexedPageWrappedAddress(previous, target));
             ProgramCounter = target;
             return 4;
@@ -440,35 +470,40 @@ public sealed partial class Cpu6502
 
     private int ExecuteFlag(CpuStatusFlags flag, bool set)
     {
+        PollInterrupts();
         DummyRead(ProgramCounter);
-        var oldInterruptDisable = GetFlag(CpuStatusFlags.InterruptDisable);
         SetFlag(flag, set);
-        if (flag == CpuStatusFlags.InterruptDisable && oldInterruptDisable && !set)
-        {
-            _suppressIrqForNextInstruction = true;
-        }
-
         return 2;
     }
 
-    private int ExecuteNoOp(int cycles) { if (cycles == 2) DummyRead(ProgramCounter); return cycles; }
+    private int ExecuteNoOp(int cycles)
+    {
+        if (cycles == 2)
+        {
+            PollInterrupts();
+            DummyRead(ProgramCounter);
+        }
+
+        return cycles;
+    }
+
     private int ExecuteNoOp(ushort address, int cycles) { Read(address); return cycles; }
     private int ExecuteStore(ushort address, byte value, int cycles) { Write(address, value); return cycles; }
     private int ExecuteLoadA(byte value, int cycles) { Accumulator = value; SetZeroAndNegative(Accumulator); return cycles; }
     private int ExecuteLoadX(byte value, int cycles) { X = value; SetZeroAndNegative(X); return cycles; }
     private int ExecuteLoadY(byte value, int cycles) { Y = value; SetZeroAndNegative(Y); return cycles; }
 
-    private int ExecuteTransferToA(byte source, int cycles) { DummyRead(ProgramCounter); Accumulator = source; SetZeroAndNegative(Accumulator); return cycles; }
-    private int ExecuteTransferToX(byte source, int cycles) { DummyRead(ProgramCounter); X = source; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteTransferToY(byte source, int cycles) { DummyRead(ProgramCounter); Y = source; SetZeroAndNegative(Y); return cycles; }
-    private int ExecuteTransferToStackPointer(byte source, int cycles) { DummyRead(ProgramCounter); StackPointer = source; return cycles; }
+    private int ExecuteTransferToA(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Accumulator = source; SetZeroAndNegative(Accumulator); return cycles; }
+    private int ExecuteTransferToX(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X = source; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteTransferToY(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y = source; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteTransferToStackPointer(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); StackPointer = source; return cycles; }
     private int ExecuteCompare(byte register, byte value, int cycles) { CompareValues(register, value); return cycles; }
-    private int ExecuteIncrementX(int cycles) { DummyRead(ProgramCounter); X++; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteIncrementY(int cycles) { DummyRead(ProgramCounter); Y++; SetZeroAndNegative(Y); return cycles; }
-    private int ExecuteDecrementX(int cycles) { DummyRead(ProgramCounter); X--; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteDecrementY(int cycles) { DummyRead(ProgramCounter); Y--; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteIncrementX(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X++; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteIncrementY(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y++; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteDecrementX(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X--; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteDecrementY(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y--; SetZeroAndNegative(Y); return cycles; }
     private int ExecuteModify(ushort address, Func<byte, byte> operation, int cycles) { ReadModifyWrite(address, operation); return cycles; }
-    private int ExecuteAccumulator(Func<byte, byte> operation, int cycles) { DummyRead(ProgramCounter); Accumulator = operation(Accumulator); return cycles; }
+    private int ExecuteAccumulator(Func<byte, byte> operation, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Accumulator = operation(Accumulator); return cycles; }
 
     private byte ShiftLeft(byte value) { SetFlag(CpuStatusFlags.Carry, (value & 0x80) != 0); value <<= 1; SetZeroAndNegative(value); return value; }
     private byte ShiftRight(byte value) { SetFlag(CpuStatusFlags.Carry, (value & 0x01) != 0); value >>= 1; SetZeroAndNegative(value); return value; }
@@ -497,20 +532,70 @@ public sealed partial class Cpu6502
     private byte DecrementValue(byte value) { value--; SetZeroAndNegative(value); return value; }
     private void CompareValues(byte register, byte value) { var result = register - value; SetFlag(CpuStatusFlags.Carry, register >= value); SetZeroAndNegative((byte)result); }
 
-    private void ServiceInterrupt(ushort vector, bool setBreakFlag)
+    private void ServiceInterruptSequence(PendingInterrupt pendingInterrupt)
     {
+        DummyRead(ProgramCounter);
+        DummyRead(ProgramCounter);
         Push((byte)(ProgramCounter >> 8));
         Push((byte)ProgramCounter);
-        var pushedStatus = Status | CpuStatusFlags.Unused;
-        pushedStatus = setBreakFlag ? pushedStatus | CpuStatusFlags.Break : pushedStatus & ~CpuStatusFlags.Break;
-        Push((byte)pushedStatus);
+        var interruptVector = SelectInterruptVector(pendingInterrupt);
+        Push(GetPushedStatus(setBreakFlag: false));
         SetFlag(CpuStatusFlags.InterruptDisable, true);
-        ProgramCounter = ReadWord(vector);
+        ProgramCounter = ReadInterruptVector(interruptVector);
     }
 
     private void Push(byte value) { Write((ushort)(0x0100 | StackPointer), value); StackPointer--; }
     private byte Pop() { StackPointer++; return Read((ushort)(0x0100 | StackPointer)); }
     private bool GetFlag(CpuStatusFlags flag) => (Status & flag) != 0;
+
+    private void PollInterrupts()
+    {
+        if (_pendingInterrupt == PendingInterrupt.Nmi)
+        {
+            return;
+        }
+
+        if (_nmiRequested)
+        {
+            _pendingInterrupt = PendingInterrupt.Nmi;
+            return;
+        }
+
+        if (_pendingInterrupt == PendingInterrupt.None &&
+            _irqLine &&
+            !GetFlag(CpuStatusFlags.InterruptDisable))
+        {
+            _pendingInterrupt = PendingInterrupt.Irq;
+        }
+    }
+
+    private PendingInterrupt SelectInterruptVector(PendingInterrupt pendingInterrupt)
+    {
+        if (pendingInterrupt == PendingInterrupt.Nmi)
+        {
+            _nmiRequested = false;
+            return PendingInterrupt.Nmi;
+        }
+
+        if (_nmiRequested)
+        {
+            _nmiRequested = false;
+            return PendingInterrupt.Nmi;
+        }
+
+        return PendingInterrupt.Irq;
+    }
+
+    private byte GetPushedStatus(bool setBreakFlag)
+    {
+        var pushedStatus = Status | CpuStatusFlags.Unused;
+        return (byte)(setBreakFlag
+            ? pushedStatus | CpuStatusFlags.Break
+            : pushedStatus & ~CpuStatusFlags.Break);
+    }
+
+    private ushort ReadInterruptVector(PendingInterrupt interruptVector) =>
+        interruptVector == PendingInterrupt.Nmi ? ReadWord(0xFFFA) : ReadWord(0xFFFE);
 
     private void SetFlag(CpuStatusFlags flag, bool enabled)
     {
