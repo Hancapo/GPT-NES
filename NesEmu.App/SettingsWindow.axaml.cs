@@ -30,6 +30,7 @@ public partial class SettingsWindow : ShadWindow
     private CancellationTokenSource? _midiSettingsApplyCancellation;
     private CancellationTokenSource? _inputSettingsApplyCancellation;
     private readonly DispatcherTimer _controllerBindingCaptureTimer;
+    private readonly DispatcherTimer _midiDeviceRefreshTimer;
     private string? _pendingKeyboardBindingAction;
     private string? _pendingControllerBindingAction;
     private SettingsSection _activeSection = SettingsSection.Audio;
@@ -37,8 +38,9 @@ public partial class SettingsWindow : ShadWindow
 
     public SettingsWindow()
     {
-        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         InitializeComponent();
+        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
+        _midiDeviceRefreshTimer = CreateMidiDeviceRefreshTimer();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
         SelectSection(SettingsSection.Video);
@@ -47,6 +49,7 @@ public partial class SettingsWindow : ShadWindow
         LoadAudioSettings(AudioOutputSettings.CreateDefault());
         LoadInputSettings(InputSettings.CreateDefault(), DefaultControllerDevices);
         LoadMidiSettings(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "No MIDI output")]);
+        StartBackgroundTimers();
         _suppressEvents = false;
     }
 
@@ -57,7 +60,6 @@ public partial class SettingsWindow : ShadWindow
         IVideoOutputSettingsHost videoOutput,
         Action<string> statusSink)
     {
-        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         _emulator = emulator;
         _midiOutput = midiOutput;
         _inputState = inputState;
@@ -65,11 +67,14 @@ public partial class SettingsWindow : ShadWindow
         _statusSink = statusSink;
 
         InitializeComponent();
+        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
+        _midiDeviceRefreshTimer = CreateMidiDeviceRefreshTimer();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
         SelectSection(SettingsSection.Video);
         InitializeOptions();
         LoadSettingsFromServices();
+        StartBackgroundTimers();
         _suppressEvents = false;
     }
 
@@ -82,6 +87,7 @@ public partial class SettingsWindow : ShadWindow
         _inputSettingsApplyCancellation?.Cancel();
         _inputSettingsApplyCancellation?.Dispose();
         _controllerBindingCaptureTimer.Stop();
+        _midiDeviceRefreshTimer.Stop();
         _inputState?.CancelControllerBindingCapture();
         base.OnClosed(e);
     }
@@ -102,6 +108,11 @@ public partial class SettingsWindow : ShadWindow
         TriangleProgramComboBox.ItemsSource = MidiCatalog.Programs;
         NoiseDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
         DmcDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
+        Pulse1RoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
+        Pulse2RoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
+        TriangleRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
+        NoiseRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
+        DmcRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
     }
 
     private void LoadSettingsFromServices()
@@ -208,8 +219,64 @@ public partial class SettingsWindow : ShadWindow
         TriangleProgramComboBox.SelectedItem = MidiCatalog.Programs.FirstOrDefault(program => program.ProgramNumber == settings.TriangleProgram) ?? MidiCatalog.Programs.First();
         NoiseDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.NoiseDrumNote) ?? MidiCatalog.PercussionNotes.First();
         DmcDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.DmcDrumNote) ?? MidiCatalog.PercussionNotes.First();
+        Pulse1RoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.Pulse1Role) ?? MidiCatalog.SourceRoles.First();
+        Pulse2RoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.Pulse2Role) ?? MidiCatalog.SourceRoles.First();
+        TriangleRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.TriangleRole) ?? MidiCatalog.SourceRoles.First();
+        NoiseRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.NoiseRole) ?? MidiCatalog.SourceRoles.First();
+        DmcRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.DmcRole) ?? MidiCatalog.SourceRoles.First();
 
         UpdateMidiLabels();
+    }
+
+    private void RefreshMidiDevicesIfNeeded(bool force = false)
+    {
+        if (_midiOutput is null || OutputDeviceComboBox is null)
+        {
+            return;
+        }
+
+        var devices = _midiOutput.GetDevices();
+        var currentDevices = OutputDeviceComboBox.ItemsSource?
+            .OfType<MidiOutputDeviceInfo>()
+            .ToArray() ?? [];
+
+        if (!force && currentDevices.SequenceEqual(devices))
+        {
+            return;
+        }
+
+        var selectedDevice = OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo;
+        var selectedDeviceIndex = selectedDevice?.DeviceIndex ?? _midiOutput.GetSettingsSnapshot().DeviceIndex;
+        var selectedDeviceName = selectedDevice?.DisplayName;
+
+        _suppressEvents = true;
+        try
+        {
+            OutputDeviceComboBox.ItemsSource = devices;
+            OutputDeviceComboBox.SelectedItem =
+                devices.FirstOrDefault(device => device.DeviceIndex == selectedDeviceIndex)
+                ?? devices.FirstOrDefault(device => string.Equals(device.DisplayName, selectedDeviceName, StringComparison.Ordinal))
+                ?? devices.FirstOrDefault();
+
+            AppLogger.Info($"MIDI device list refreshed. Count={devices.Count - 1}, Force={force}");
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
+    }
+
+    private void TryRefreshMidiDevices(bool force = false)
+    {
+        try
+        {
+            RefreshMidiDevicesIfNeeded(force);
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Could not refresh MIDI devices. Force={force}", ex);
+            _statusSink?.Invoke($"Could not refresh MIDI devices: {ex.Message}");
+        }
     }
 
     private void AudioSlider_OnValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
@@ -376,6 +443,7 @@ public partial class SettingsWindow : ShadWindow
             _ => SettingsSection.Video
         };
 
+        AppLogger.Info($"Settings section selected: {section}");
         SelectSection(section);
     }
 
@@ -819,7 +887,12 @@ public partial class SettingsWindow : ShadWindow
             DmcVolumePercent = ReadPercent(DmcVolumeSlider),
             NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
             DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider)
+            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider),
+            Pulse1Role = (Pulse1RoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
+            Pulse2Role = (Pulse2RoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
+            TriangleRole = (TriangleRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
+            NoiseRole = (NoiseRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
+            DmcRole = (DmcRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto
         };
 
         if (_midiOutput.TryApplySettings(settings, out var error))
@@ -907,6 +980,11 @@ public partial class SettingsWindow : ShadWindow
         {
             MidiScrollViewer.IsVisible = section == SettingsSection.Midi;
         }
+
+        if (section == SettingsSection.Midi)
+        {
+            Dispatcher.UIThread.Post(() => TryRefreshMidiDevices(force: true), DispatcherPriority.Background);
+        }
     }
 
     private Button? GetKeyboardBindingButton(string action)
@@ -986,8 +1064,24 @@ public partial class SettingsWindow : ShadWindow
         };
 
         timer.Tick += ControllerBindingCaptureTimer_OnTick;
-        timer.Start();
         return timer;
+    }
+
+    private DispatcherTimer CreateMidiDeviceRefreshTimer()
+    {
+        var timer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromSeconds(1)
+        };
+
+        timer.Tick += MidiDeviceRefreshTimer_OnTick;
+        return timer;
+    }
+
+    private void StartBackgroundTimers()
+    {
+        _controllerBindingCaptureTimer.Start();
+        _midiDeviceRefreshTimer.Start();
     }
 
     private void ControllerBindingCaptureTimer_OnTick(object? sender, EventArgs e)
@@ -1003,6 +1097,19 @@ public partial class SettingsWindow : ShadWindow
         }
 
         AssignPendingControllerBinding(capture.Binding);
+    }
+
+    private void MidiDeviceRefreshTimer_OnTick(object? sender, EventArgs e)
+    {
+        if (_activeSection != SettingsSection.Midi
+            || _midiOutput is null
+            || OutputDeviceComboBox is null
+            || OutputDeviceComboBox.IsDropDownOpen)
+        {
+            return;
+        }
+
+        TryRefreshMidiDevices();
     }
 
     private void CancelPendingBindingCapture()

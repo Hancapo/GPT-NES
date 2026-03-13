@@ -67,6 +67,9 @@
                   Header="Enter Fullscreen"
                   Click="FullscreenMenuItem_OnClick" />
       </MenuItem>
+      <MenuItem Header="Tools">
+        <MenuItem Header="Open Log Folder" Click="OpenLogFolderMenuItem_OnClick" />
+      </MenuItem>
       <MenuItem Header="Settings" Click="SettingsMenuItem_OnClick" />
     </Menu>
   </shadui:Window.MenuBarContent>

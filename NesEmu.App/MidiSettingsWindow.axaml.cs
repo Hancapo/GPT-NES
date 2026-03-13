@@ -7,6 +7,7 @@ namespace NesEmu.App;
 public partial class MidiSettingsWindow : Window
 {
     private readonly IReadOnlyList<MidiOutputDeviceInfo> _devices;
+    private readonly MidiOutputSettings _originalSettings;
 
     public MidiSettingsWindow()
         : this(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "No MIDI output")])
@@ -16,6 +17,7 @@ public partial class MidiSettingsWindow : Window
     public MidiSettingsWindow(MidiOutputSettings settings, IReadOnlyList<MidiOutputDeviceInfo> devices)
     {
         _devices = devices;
+        _originalSettings = settings.Clone();
 
         InitializeComponent();
         PopulateLists();
@@ -64,29 +66,27 @@ public partial class MidiSettingsWindow : Window
 
     private void AcceptButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        var settings = new MidiOutputSettings
-        {
-            Enabled = EnableMidiCheckBox.IsChecked == true,
-            DeviceIndex = (OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo)?.DeviceIndex ?? -1,
-            MusicOnlyFilter = MusicOnlyCheckBox.IsChecked != false,
-            SendPercussion = PercussionCheckBox.IsChecked != false,
-            Pulse1Enabled = Pulse1EnabledCheckBox.IsChecked != false,
-            Pulse2Enabled = Pulse2EnabledCheckBox.IsChecked != false,
-            TriangleEnabled = TriangleEnabledCheckBox.IsChecked != false,
-            NoiseEnabled = NoiseEnabledCheckBox.IsChecked != false,
-            DmcEnabled = DmcEnabledCheckBox.IsChecked != false,
-            Pulse1Program = (Pulse1ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 80,
-            Pulse2Program = (Pulse2ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 81,
-            TriangleProgram = (TriangleProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 33,
-            Pulse1VolumePercent = ReadPercent(Pulse1VolumeSlider),
-            Pulse2VolumePercent = ReadPercent(Pulse2VolumeSlider),
-            TriangleVolumePercent = ReadPercent(TriangleVolumeSlider),
-            NoiseVolumePercent = ReadPercent(NoiseVolumeSlider),
-            DmcVolumePercent = ReadPercent(DmcVolumeSlider),
-            NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider)
-        };
+        var settings = _originalSettings.Clone();
+        settings.Enabled = EnableMidiCheckBox.IsChecked == true;
+        settings.DeviceIndex = (OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo)?.DeviceIndex ?? -1;
+        settings.MusicOnlyFilter = MusicOnlyCheckBox.IsChecked != false;
+        settings.SendPercussion = PercussionCheckBox.IsChecked != false;
+        settings.Pulse1Enabled = Pulse1EnabledCheckBox.IsChecked != false;
+        settings.Pulse2Enabled = Pulse2EnabledCheckBox.IsChecked != false;
+        settings.TriangleEnabled = TriangleEnabledCheckBox.IsChecked != false;
+        settings.NoiseEnabled = NoiseEnabledCheckBox.IsChecked != false;
+        settings.DmcEnabled = DmcEnabledCheckBox.IsChecked != false;
+        settings.Pulse1Program = (Pulse1ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 80;
+        settings.Pulse2Program = (Pulse2ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 81;
+        settings.TriangleProgram = (TriangleProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 33;
+        settings.Pulse1VolumePercent = ReadPercent(Pulse1VolumeSlider);
+        settings.Pulse2VolumePercent = ReadPercent(Pulse2VolumeSlider);
+        settings.TriangleVolumePercent = ReadPercent(TriangleVolumeSlider);
+        settings.NoiseVolumePercent = ReadPercent(NoiseVolumeSlider);
+        settings.DmcVolumePercent = ReadPercent(DmcVolumeSlider);
+        settings.NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1;
+        settings.DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1;
+        settings.MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider);
 
         Close(settings);
     }

@@ -18,11 +18,66 @@
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="11.3.12" />
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
-    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="RtMidi.Core" Version="1.0.53" GeneratePathProperty="true" />
     <PackageReference Include="ShadUI" Version="0.1.6" />
     <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
   </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(PkgRtMidi_Core)\build\librtmidi.so">
+      <Link>librtmidi.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <Target Name="FilterLinuxResolvedPublishArtifacts"
+          AfterTargets="ComputeFilesToPublish"
+          Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux'))">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'rtmidi.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'rtmidi32.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'librtmidi.dylib'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Avalonia.Win32.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Avalonia.Win32.Automation.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Avalonia.Metal.dll'" />
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="'%(ResolvedFileToPublish.Filename)%(ResolvedFileToPublish.Extension)' == 'Avalonia.Native.dll'" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="RemoveNonLinuxBuildArtifacts"
+          AfterTargets="Build"
+          Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux')) and '$(TargetDir)' != ''">
+    <Delete Files="$(TargetDir)rtmidi.dll;
+                   $(TargetDir)rtmidi32.dll;
+                   $(TargetDir)librtmidi.dylib;
+                   $(TargetDir)Avalonia.Win32.dll;
+                   $(TargetDir)Avalonia.Win32.Automation.dll;
+                   $(TargetDir)Avalonia.Metal.dll;
+                   $(TargetDir)Avalonia.Native.dll"
+            TreatErrorsAsWarnings="true" />
+  </Target>
+
+  <Target Name="RemoveNonLinuxPublishedArtifacts"
+          AfterTargets="Publish"
+          Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('linux')) and '$(PublishDir)' != ''">
+    <Delete Files="$(PublishDir)rtmidi.dll;
+                   $(PublishDir)rtmidi32.dll;
+                   $(PublishDir)librtmidi.dylib;
+                   $(PublishDir)Avalonia.Win32.dll;
+                   $(PublishDir)Avalonia.Win32.Automation.dll;
+                   $(PublishDir)Avalonia.Metal.dll;
+                   $(PublishDir)Avalonia.Native.dll"
+            TreatErrorsAsWarnings="true" />
+  </Target>
 
 </Project>

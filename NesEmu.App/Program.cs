@@ -1,11 +1,30 @@
 using Avalonia;
+using Avalonia.Threading;
 
 namespace NesEmu.App;
 
 internal static class Program
 {
     [STAThread]
-    public static void Main(string[] args) => BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    public static void Main(string[] args)
+    {
+        AppLogger.Initialize();
+        AppLogger.Info("Application startup requested.");
+
+        AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
+        TaskScheduler.UnobservedTaskException += TaskScheduler_UnobservedTaskException;
+
+        try
+        {
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+            AppLogger.Info("Application shutdown completed.");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Fatal exception during application startup or shutdown.", ex);
+            throw;
+        }
+    }
 
     public static AppBuilder BuildAvaloniaApp()
     {
@@ -26,5 +45,17 @@ internal static class Program
         }
 
         return builder.LogToTrace();
+    }
+
+    private static void CurrentDomain_UnhandledException(object? sender, UnhandledExceptionEventArgs e)
+    {
+        AppLogger.Error(
+            $"Unhandled AppDomain exception. IsTerminating={e.IsTerminating}.",
+            e.ExceptionObject as Exception);
+    }
+
+    private static void TaskScheduler_UnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+    {
+        AppLogger.Error("Unobserved task exception.", e.Exception);
     }
 }

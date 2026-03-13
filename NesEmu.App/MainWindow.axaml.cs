@@ -51,6 +51,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     public MainWindow()
     {
         InitializeComponent();
+        AppLogger.Info("Main window created.");
 
         _bitmap = new WriteableBitmap(
             new PixelSize(NesVideoConstants.Width, NesVideoConstants.Height),
@@ -238,15 +239,31 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     {
         if (_settingsWindow is not null)
         {
+            AppLogger.Info("Settings window re-activated.");
             _settingsWindow.Activate();
             return;
         }
 
         _inputState.Clear();
+        AppLogger.Info("Opening settings window.");
 
         _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
         _settingsWindow.Closed += SettingsWindow_OnClosed;
         _settingsWindow.Show(this);
+    }
+
+    private void OpenLogFolderMenuItem_OnClick(object? sender, RoutedEventArgs e)
+    {
+        try
+        {
+            AppLogger.OpenLogDirectory();
+            SetStatus($"Opened log folder: {AppLogger.LogDirectoryPath}");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Could not open log folder.", ex);
+            SetStatus($"Could not open log folder. Path: {AppLogger.LogDirectoryPath}");
+        }
     }
 
     private void SettingsWindow_OnClosed(object? sender, EventArgs e)
