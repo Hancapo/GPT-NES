@@ -10,6 +10,7 @@ public sealed class InputStateSource : IDisposable
     private readonly object _sync = new();
     private readonly SdlGamepadBackend _gamepadBackend = new();
     private InputSettings _settings = InputSettings.CreateDefault();
+    private ControllerCaptureSession? _controllerCaptureSession;
     private bool _disposed;
 
     public void SetKey(Key key, bool pressed)
@@ -65,26 +66,59 @@ public sealed class InputStateSource : IDisposable
 
     public IReadOnlyList<ControllerBindingOption> GetControllerBindingOptions(string? controllerId = null)
     {
-        return
-        [
-            new("none", "None", ControllerBinding.None()),
-            new("south", "South / Cross / A", ControllerBinding.GamepadButton(GamepadButtons.A)),
-            new("west", "West / Square / X", ControllerBinding.GamepadButton(GamepadButtons.X)),
-            new("east", "East / Circle / B", ControllerBinding.GamepadButton(GamepadButtons.B)),
-            new("north", "North / Triangle / Y", ControllerBinding.GamepadButton(GamepadButtons.Y)),
-            new("view", "View / Share", ControllerBinding.GamepadButton(GamepadButtons.View)),
-            new("menu", "Menu / Options", ControllerBinding.GamepadButton(GamepadButtons.Menu)),
-            new("l1", "Left Shoulder", ControllerBinding.GamepadButton(GamepadButtons.LeftShoulder)),
-            new("r1", "Right Shoulder", ControllerBinding.GamepadButton(GamepadButtons.RightShoulder)),
-            new("dup", "D-Pad Up", ControllerBinding.GamepadButton(GamepadButtons.DPadUp)),
-            new("ddown", "D-Pad Down", ControllerBinding.GamepadButton(GamepadButtons.DPadDown)),
-            new("dleft", "D-Pad Left", ControllerBinding.GamepadButton(GamepadButtons.DPadLeft)),
-            new("dright", "D-Pad Right", ControllerBinding.GamepadButton(GamepadButtons.DPadRight)),
-            new("lsx+", "Left Stick Right", ControllerBinding.GamepadAxis(0, positive: true, DefaultAxisThreshold)),
-            new("lsx-", "Left Stick Left", ControllerBinding.GamepadAxis(0, positive: false, DefaultAxisThreshold)),
-            new("lsy+", "Left Stick Down", ControllerBinding.GamepadAxis(1, positive: true, DefaultAxisThreshold)),
-            new("lsy-", "Left Stick Up", ControllerBinding.GamepadAxis(1, positive: false, DefaultAxisThreshold))
-        ];
+        return ControllerBindingCatalog.Options;
+    }
+
+    public void BeginControllerBindingCapture(string? controllerId)
+    {
+        var normalizedControllerId = NormalizeControllerId(controllerId);
+        var activeBindings = ReadActiveControllerBindings(normalizedControllerId);
+
+        lock (_sync)
+        {
+            _controllerCaptureSession = new ControllerCaptureSession(normalizedControllerId, activeBindings);
+        }
+    }
+
+    public void CancelControllerBindingCapture()
+    {
+        lock (_sync)
+        {
+            _controllerCaptureSession = null;
+        }
+    }
+
+    public bool TryCaptureControllerBinding(string? controllerId, out CapturedControllerBinding capture)
+    {
+        var normalizedControllerId = NormalizeControllerId(controllerId);
+        var activeBindings = ReadActiveControllerBindings(normalizedControllerId);
+
+        lock (_sync)
+        {
+            if (_controllerCaptureSession is null || _controllerCaptureSession.ControllerId != normalizedControllerId)
+            {
+                _controllerCaptureSession = new ControllerCaptureSession(normalizedControllerId, activeBindings);
+                capture = default;
+                return false;
+            }
+
+            foreach (var option in activeBindings)
+            {
+                if (_controllerCaptureSession.ActiveBindings.Any(active => active.Binding == option.Binding))
+                {
+                    continue;
+                }
+
+                _controllerCaptureSession = new ControllerCaptureSession(normalizedControllerId, activeBindings);
+                capture = new CapturedControllerBinding(option.Binding, option.DisplayName);
+                return true;
+            }
+
+            _controllerCaptureSession = new ControllerCaptureSession(normalizedControllerId, activeBindings);
+        }
+
+        capture = default;
+        return false;
     }
 
     public bool IsControlKey(Key key)
@@ -177,15 +211,17 @@ public sealed class InputStateSource : IDisposable
 
     private static ControllerState ReadGamepad(SdlGamepadState state, InputSettings settings)
     {
+        var analogDPad = ReadAnalogDPadState(state, settings.AnalogDPadMode);
+
         return new ControllerState(
             A: EvaluateGamepadBinding(state, settings.ControllerA),
             B: EvaluateGamepadBinding(state, settings.ControllerB),
             Select: EvaluateGamepadBinding(state, settings.ControllerSelect),
             Start: EvaluateGamepadBinding(state, settings.ControllerStart),
-            Up: EvaluateGamepadBinding(state, settings.ControllerUp),
-            Down: EvaluateGamepadBinding(state, settings.ControllerDown),
-            Left: EvaluateGamepadBinding(state, settings.ControllerLeft),
-            Right: EvaluateGamepadBinding(state, settings.ControllerRight));
+            Up: EvaluateGamepadBinding(state, settings.ControllerUp) || analogDPad.Up,
+            Down: EvaluateGamepadBinding(state, settings.ControllerDown) || analogDPad.Down,
+            Left: EvaluateGamepadBinding(state, settings.ControllerLeft) || analogDPad.Left,
+            Right: EvaluateGamepadBinding(state, settings.ControllerRight) || analogDPad.Right);
     }
 
     private static bool EvaluateGamepadBinding(SdlGamepadState state, ControllerBinding binding)
@@ -221,6 +257,67 @@ public sealed class InputStateSource : IDisposable
             : value <= -threshold;
     }
 
+    private IReadOnlyList<ControllerBindingOption> ReadActiveControllerBindings(string? controllerId)
+    {
+        if (!TryReadGamepadState(controllerId, out var state))
+        {
+            return [];
+        }
+
+        return ControllerBindingCatalog.Options
+            .Where(option => option.Binding.Kind != ControllerBindingKind.None && EvaluateGamepadBinding(state, option.Binding))
+            .ToArray();
+    }
+
+    private bool TryReadGamepadState(string? controllerId, out SdlGamepadState state)
+    {
+        return GetControllerSource(controllerId) switch
+        {
+            ControllerDeviceSource.Gamepad => _gamepadBackend.TryReadSelectedGamepad(controllerId, out state),
+            ControllerDeviceSource.None => ReturnNoGamepad(out state),
+            _ => _gamepadBackend.TryReadAutoGamepad(out state)
+        };
+    }
+
+    private static bool ReturnNoGamepad(out SdlGamepadState state)
+    {
+        state = default;
+        return false;
+    }
+
+    private static string NormalizeControllerId(string? controllerId)
+    {
+        return string.IsNullOrWhiteSpace(controllerId)
+            ? ControllerDeviceInfo.AutoId
+            : controllerId;
+    }
+
+    private static ControllerState ReadAnalogDPadState(SdlGamepadState state, ControllerAnalogDPadMode mode)
+    {
+        return mode switch
+        {
+            ControllerAnalogDPadMode.LeftStick => new ControllerState(
+                A: false,
+                B: false,
+                Select: false,
+                Start: false,
+                Up: state.LeftThumbstickY <= -DefaultAxisThreshold,
+                Down: state.LeftThumbstickY >= DefaultAxisThreshold,
+                Left: state.LeftThumbstickX <= -DefaultAxisThreshold,
+                Right: state.LeftThumbstickX >= DefaultAxisThreshold),
+            ControllerAnalogDPadMode.RightStick => new ControllerState(
+                A: false,
+                B: false,
+                Select: false,
+                Start: false,
+                Up: state.RightThumbstickY <= -DefaultAxisThreshold,
+                Down: state.RightThumbstickY >= DefaultAxisThreshold,
+                Left: state.RightThumbstickX <= -DefaultAxisThreshold,
+                Right: state.RightThumbstickX >= DefaultAxisThreshold),
+            _ => default
+        };
+    }
+
     private static ControllerDeviceSource GetControllerSource(string? controllerId)
     {
         if (string.IsNullOrWhiteSpace(controllerId) || controllerId == ControllerDeviceInfo.AutoId)
@@ -239,4 +336,8 @@ public sealed class InputStateSource : IDisposable
     }
 
     private static bool KeyPressed(IReadOnlySet<Key> pressedKeys, Key key) => key != Key.None && pressedKeys.Contains(key);
+
+    private sealed record ControllerCaptureSession(string ControllerId, IReadOnlyList<ControllerBindingOption> ActiveBindings);
 }
+
+public readonly record struct CapturedControllerBinding(ControllerBinding Binding, string DisplayName);

@@ -318,76 +318,104 @@
               <Border Classes="section">
                 <StackPanel Spacing="16">
                   <TextBlock Classes="group-title" Text="Controller bindings" />
+                  <TextBlock x:Name="ControllerCaptureText"
+                             Classes="help"
+                             Text="Click a command, then press a controller button or move a stick." />
 
-                  <Grid ColumnDefinitions="*,*"
+                  <Grid ColumnDefinitions="170,*"
+                        ColumnSpacing="16">
+                    <TextBlock VerticalAlignment="Center" Text="Analog D-Pad overlay" />
+                    <ComboBox x:Name="ControllerAnalogDPadComboBox"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="InputSelection_OnChanged" />
+                  </Grid>
+
+                  <TextBlock Classes="help"
+                             Text="Adds left or right stick directions on top of the mapped D-Pad inputs." />
+
+                  <Grid ColumnDefinitions="Auto,*,Auto,*"
                         RowDefinitions="Auto,Auto,Auto,Auto"
-                        ColumnSpacing="16"
-                        RowSpacing="16">
-                    <StackPanel Spacing="8">
-                      <TextBlock Text="A" />
-                      <ComboBox x:Name="ControllerAComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                        ColumnSpacing="14"
+                        RowSpacing="14">
+                    <TextBlock VerticalAlignment="Center" Text="A" />
+                    <Button x:Name="ControllerAButton"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="A"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Column="1"
-                                Spacing="8">
-                      <TextBlock Text="B" />
-                      <ComboBox x:Name="ControllerBComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="B" />
+                    <Button x:Name="ControllerBButton"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="B"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="1"
-                                Spacing="8">
-                      <TextBlock Text="Select" />
-                      <ComboBox x:Name="ControllerSelectComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="1"
+                               VerticalAlignment="Center"
+                               Text="Select" />
+                    <Button x:Name="ControllerSelectButton"
+                            Grid.Row="1"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Select"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="1"
-                                Grid.Column="1"
-                                Spacing="8">
-                      <TextBlock Text="Start" />
-                      <ComboBox x:Name="ControllerStartComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="1"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Start" />
+                    <Button x:Name="ControllerStartButton"
+                            Grid.Row="1"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Start"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="2"
-                                Spacing="8">
-                      <TextBlock Text="Up" />
-                      <ComboBox x:Name="ControllerUpComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="2"
+                               VerticalAlignment="Center"
+                               Text="Up" />
+                    <Button x:Name="ControllerUpButton"
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Up"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="2"
-                                Grid.Column="1"
-                                Spacing="8">
-                      <TextBlock Text="Down" />
-                      <ComboBox x:Name="ControllerDownComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="2"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Down" />
+                    <Button x:Name="ControllerDownButton"
+                            Grid.Row="2"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Down"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="3"
-                                Spacing="8">
-                      <TextBlock Text="Left" />
-                      <ComboBox x:Name="ControllerLeftComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="3"
+                               VerticalAlignment="Center"
+                               Text="Left" />
+                    <Button x:Name="ControllerLeftButton"
+                            Grid.Row="3"
+                            Grid.Column="1"
+                            Classes="Outline key-binding"
+                            Tag="Left"
+                            Click="ControllerBindingButton_OnClick" />
 
-                    <StackPanel Grid.Row="3"
-                                Grid.Column="1"
-                                Spacing="8">
-                      <TextBlock Text="Right" />
-                      <ComboBox x:Name="ControllerRightComboBox"
-                                Classes="setting-combo"
-                                SelectionChanged="InputSelection_OnChanged" />
-                    </StackPanel>
+                    <TextBlock Grid.Row="3"
+                               Grid.Column="2"
+                               VerticalAlignment="Center"
+                               Text="Right" />
+                    <Button x:Name="ControllerRightButton"
+                            Grid.Row="3"
+                            Grid.Column="3"
+                            Classes="Outline key-binding"
+                            Tag="Right"
+                            Click="ControllerBindingButton_OnClick" />
                   </Grid>
                 </StackPanel>
               </Border>

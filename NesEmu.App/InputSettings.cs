@@ -28,6 +28,13 @@ public enum ControllerDeviceSource
     Raw
 }
 
+public enum ControllerAnalogDPadMode
+{
+    None,
+    LeftStick,
+    RightStick
+}
+
 public enum ControllerBindingKind
 {
     None,
@@ -81,6 +88,11 @@ public sealed record ControllerBindingOption(string Id, string DisplayName, Cont
     public override string ToString() => DisplayName;
 }
 
+public sealed record ControllerAnalogDPadOption(ControllerAnalogDPadMode Mode, string DisplayName)
+{
+    public override string ToString() => DisplayName;
+}
+
 public sealed record KeyBindingOption(Key Key, string DisplayName)
 {
     public override string ToString() => DisplayName;
@@ -89,6 +101,8 @@ public sealed record KeyBindingOption(Key Key, string DisplayName)
 public sealed class InputSettings
 {
     public string SelectedControllerId { get; set; } = ControllerDeviceInfo.AutoId;
+
+    public ControllerAnalogDPadMode AnalogDPadMode { get; set; } = ControllerAnalogDPadMode.None;
 
     public Key KeyboardAKey { get; set; } = Key.X;
 
@@ -129,6 +143,7 @@ public sealed class InputSettings
         return new InputSettings
         {
             SelectedControllerId = SelectedControllerId,
+            AnalogDPadMode = AnalogDPadMode,
             KeyboardAKey = KeyboardAKey,
             KeyboardBKey = KeyboardBKey,
             KeyboardSelectKey = KeyboardSelectKey,
@@ -147,6 +162,61 @@ public sealed class InputSettings
             ControllerRight = ControllerRight with { }
         };
     }
+}
+
+public static class ControllerBindingCatalog
+{
+    public static IReadOnlyList<ControllerBindingOption> Options { get; } =
+    [
+        new("none", "None", ControllerBinding.None()),
+        new("south", "South / Cross / A", ControllerBinding.GamepadButton(GamepadButtons.A)),
+        new("west", "West / Square / X", ControllerBinding.GamepadButton(GamepadButtons.X)),
+        new("east", "East / Circle / B", ControllerBinding.GamepadButton(GamepadButtons.B)),
+        new("north", "North / Triangle / Y", ControllerBinding.GamepadButton(GamepadButtons.Y)),
+        new("view", "View / Share", ControllerBinding.GamepadButton(GamepadButtons.View)),
+        new("menu", "Menu / Options", ControllerBinding.GamepadButton(GamepadButtons.Menu)),
+        new("l1", "Left Shoulder", ControllerBinding.GamepadButton(GamepadButtons.LeftShoulder)),
+        new("r1", "Right Shoulder", ControllerBinding.GamepadButton(GamepadButtons.RightShoulder)),
+        new("dup", "D-Pad Up", ControllerBinding.GamepadButton(GamepadButtons.DPadUp)),
+        new("ddown", "D-Pad Down", ControllerBinding.GamepadButton(GamepadButtons.DPadDown)),
+        new("dleft", "D-Pad Left", ControllerBinding.GamepadButton(GamepadButtons.DPadLeft)),
+        new("dright", "D-Pad Right", ControllerBinding.GamepadButton(GamepadButtons.DPadRight)),
+        new("lsx+", "Left Stick Right", ControllerBinding.GamepadAxis(0, positive: true, 0.35)),
+        new("lsx-", "Left Stick Left", ControllerBinding.GamepadAxis(0, positive: false, 0.35)),
+        new("lsy+", "Left Stick Down", ControllerBinding.GamepadAxis(1, positive: true, 0.35)),
+        new("lsy-", "Left Stick Up", ControllerBinding.GamepadAxis(1, positive: false, 0.35)),
+        new("rsx+", "Right Stick Right", ControllerBinding.GamepadAxis(2, positive: true, 0.35)),
+        new("rsx-", "Right Stick Left", ControllerBinding.GamepadAxis(2, positive: false, 0.35)),
+        new("rsy+", "Right Stick Down", ControllerBinding.GamepadAxis(3, positive: true, 0.35)),
+        new("rsy-", "Right Stick Up", ControllerBinding.GamepadAxis(3, positive: false, 0.35)),
+        new("lt", "Left Trigger", ControllerBinding.GamepadAxis(4, positive: true, 0.35)),
+        new("rt", "Right Trigger", ControllerBinding.GamepadAxis(5, positive: true, 0.35))
+    ];
+
+    public static string GetDisplayName(ControllerBinding binding)
+    {
+        return Options.FirstOrDefault(option => option.Binding == binding)?.DisplayName
+            ?? binding.Kind switch
+            {
+                ControllerBindingKind.None => "None",
+                ControllerBindingKind.GamepadButton => $"Button {(GamepadButtons)binding.Index}",
+                ControllerBindingKind.GamepadAxis => $"Axis {binding.Index} {(binding.Value >= 0 ? "+" : "-")}",
+                ControllerBindingKind.RawButton => $"Raw Button {binding.Index}",
+                ControllerBindingKind.RawSwitch => $"Raw Switch {binding.Index}",
+                ControllerBindingKind.RawAxis => $"Raw Axis {binding.Index} {(binding.Value >= 0 ? "+" : "-")}",
+                _ => "Unknown"
+            };
+    }
+}
+
+public static class ControllerAnalogDPadCatalog
+{
+    public static IReadOnlyList<ControllerAnalogDPadOption> Options { get; } =
+    [
+        new(ControllerAnalogDPadMode.None, "Disabled"),
+        new(ControllerAnalogDPadMode.LeftStick, "Left stick"),
+        new(ControllerAnalogDPadMode.RightStick, "Right stick")
+    ];
 }
 
 public static class InputCatalog

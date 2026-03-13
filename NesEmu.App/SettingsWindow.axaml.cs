@@ -4,6 +4,7 @@ using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
+using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ShadWindow = ShadUI.Window;
 
@@ -28,12 +29,15 @@ public partial class SettingsWindow : ShadWindow
     private CancellationTokenSource? _audioSettingsApplyCancellation;
     private CancellationTokenSource? _midiSettingsApplyCancellation;
     private CancellationTokenSource? _inputSettingsApplyCancellation;
+    private readonly DispatcherTimer _controllerBindingCaptureTimer;
     private string? _pendingKeyboardBindingAction;
+    private string? _pendingControllerBindingAction;
     private SettingsSection _activeSection = SettingsSection.Audio;
     private bool _suppressEvents = true;
 
     public SettingsWindow()
     {
+        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         InitializeComponent();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -53,6 +57,7 @@ public partial class SettingsWindow : ShadWindow
         IVideoOutputSettingsHost videoOutput,
         Action<string> statusSink)
     {
+        _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         _emulator = emulator;
         _midiOutput = midiOutput;
         _inputState = inputState;
@@ -76,6 +81,8 @@ public partial class SettingsWindow : ShadWindow
         _midiSettingsApplyCancellation?.Dispose();
         _inputSettingsApplyCancellation?.Cancel();
         _inputSettingsApplyCancellation?.Dispose();
+        _controllerBindingCaptureTimer.Stop();
+        _inputState?.CancelControllerBindingCapture();
         base.OnClosed(e);
     }
 
@@ -89,6 +96,7 @@ public partial class SettingsWindow : ShadWindow
     {
         AudioApiComboBox.ItemsSource = AudioBackendCatalog.Options;
         VideoRendererComboBox.ItemsSource = VideoRendererCatalog.Options;
+        ControllerAnalogDPadComboBox.ItemsSource = ControllerAnalogDPadCatalog.Options;
         Pulse1ProgramComboBox.ItemsSource = MidiCatalog.Programs;
         Pulse2ProgramComboBox.ItemsSource = MidiCatalog.Programs;
         TriangleProgramComboBox.ItemsSource = MidiCatalog.Programs;
@@ -156,6 +164,8 @@ public partial class SettingsWindow : ShadWindow
     {
         ControllerDeviceComboBox.ItemsSource = devices;
         ControllerDeviceComboBox.SelectedItem = devices.FirstOrDefault(device => device.Id == settings.SelectedControllerId) ?? devices.FirstOrDefault();
+        ControllerAnalogDPadComboBox.SelectedItem = ControllerAnalogDPadCatalog.Options.FirstOrDefault(option => option.Mode == settings.AnalogDPadMode)
+            ?? ControllerAnalogDPadCatalog.Options.First();
 
         SetKeyboardBindingButton(KeyboardAButton, settings.KeyboardAKey);
         SetKeyboardBindingButton(KeyboardBButton, settings.KeyboardBKey);
@@ -165,6 +175,7 @@ public partial class SettingsWindow : ShadWindow
         SetKeyboardBindingButton(KeyboardDownButton, settings.KeyboardDownKey);
         SetKeyboardBindingButton(KeyboardLeftButton, settings.KeyboardLeftKey);
         SetKeyboardBindingButton(KeyboardRightButton, settings.KeyboardRightKey);
+        UpdateKeyboardBindingButtonStates();
         UpdateKeyboardCaptureText();
 
         RefreshControllerBindingOptions(settings.SelectedControllerId, settings);
@@ -236,6 +247,7 @@ public partial class SettingsWindow : ShadWindow
             return;
         }
 
+        CancelControllerBindingCapture();
         var currentSettings = BuildInputSettingsFromControls();
         RefreshControllerBindingOptions(GetSelectedControllerId(), currentSettings);
         ScheduleInputSettingsApply();
@@ -253,9 +265,28 @@ public partial class SettingsWindow : ShadWindow
             return;
         }
 
+        CancelControllerBindingCapture();
         _pendingKeyboardBindingAction = action;
         UpdateKeyboardBindingButtonStates();
         UpdateKeyboardCaptureText();
+        button.Focus();
+    }
+
+    private void ControllerBindingButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Button button || button.Tag is not string action)
+        {
+            return;
+        }
+
+        _pendingKeyboardBindingAction = null;
+        UpdateKeyboardBindingButtonStates();
+        UpdateKeyboardCaptureText();
+
+        _pendingControllerBindingAction = action;
+        _inputState?.BeginControllerBindingCapture(GetSelectedControllerId());
+        UpdateControllerBindingButtonStates();
+        UpdateControllerCaptureText();
         button.Focus();
     }
 
@@ -308,17 +339,20 @@ public partial class SettingsWindow : ShadWindow
 
     private void SettingsWindow_KeyDown(object? sender, KeyEventArgs e)
     {
-        if (_pendingKeyboardBindingAction is null)
+        if (_pendingKeyboardBindingAction is null && _pendingControllerBindingAction is null)
         {
             return;
         }
 
         if (e.Key == Key.Escape)
         {
-            _pendingKeyboardBindingAction = null;
-            UpdateKeyboardBindingButtonStates();
-            UpdateKeyboardCaptureText();
+            CancelPendingBindingCapture();
             e.Handled = true;
+            return;
+        }
+
+        if (_pendingKeyboardBindingAction is null)
+        {
             return;
         }
 
@@ -442,26 +476,16 @@ public partial class SettingsWindow : ShadWindow
 
     private void RefreshControllerBindingOptions(string? controllerId, InputSettings desiredSettings)
     {
-        var options = _inputState?.GetControllerBindingOptions(controllerId) ?? [new ControllerBindingOption("none", "None", ControllerBinding.None())];
-
-        ControllerAComboBox.ItemsSource = options;
-        ControllerBComboBox.ItemsSource = options;
-        ControllerSelectComboBox.ItemsSource = options;
-        ControllerStartComboBox.ItemsSource = options;
-        ControllerUpComboBox.ItemsSource = options;
-        ControllerDownComboBox.ItemsSource = options;
-        ControllerLeftComboBox.ItemsSource = options;
-        ControllerRightComboBox.ItemsSource = options;
-
-        var defaults = InputSettings.CreateDefault();
-        ControllerAComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerA, defaults.ControllerA);
-        ControllerBComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerB, defaults.ControllerB);
-        ControllerSelectComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerSelect, defaults.ControllerSelect);
-        ControllerStartComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerStart, defaults.ControllerStart);
-        ControllerUpComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerUp, defaults.ControllerUp);
-        ControllerDownComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerDown, defaults.ControllerDown);
-        ControllerLeftComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerLeft, defaults.ControllerLeft);
-        ControllerRightComboBox.SelectedItem = SelectBindingOption(options, desiredSettings.ControllerRight, defaults.ControllerRight);
+        SetControllerBindingButton(ControllerAButton, desiredSettings.ControllerA);
+        SetControllerBindingButton(ControllerBButton, desiredSettings.ControllerB);
+        SetControllerBindingButton(ControllerSelectButton, desiredSettings.ControllerSelect);
+        SetControllerBindingButton(ControllerStartButton, desiredSettings.ControllerStart);
+        SetControllerBindingButton(ControllerUpButton, desiredSettings.ControllerUp);
+        SetControllerBindingButton(ControllerDownButton, desiredSettings.ControllerDown);
+        SetControllerBindingButton(ControllerLeftButton, desiredSettings.ControllerLeft);
+        SetControllerBindingButton(ControllerRightButton, desiredSettings.ControllerRight);
+        UpdateControllerBindingButtonStates();
+        UpdateControllerCaptureText();
     }
 
     private void AssignPendingKeyboardBinding(Key key)
@@ -486,6 +510,25 @@ public partial class SettingsWindow : ShadWindow
         ScheduleInputSettingsApply();
     }
 
+    private void AssignPendingControllerBinding(ControllerBinding binding)
+    {
+        if (_pendingControllerBindingAction is null)
+        {
+            return;
+        }
+
+        var button = GetControllerBindingButton(_pendingControllerBindingAction);
+        if (button is null)
+        {
+            CancelControllerBindingCapture();
+            return;
+        }
+
+        SetControllerBindingButton(button, binding);
+        CancelControllerBindingCapture();
+        ScheduleInputSettingsApply();
+    }
+
     private void SetKeyboardBindingButton(Button button, Key key)
     {
         button.Tag = button.Tag is string action
@@ -493,6 +536,15 @@ public partial class SettingsWindow : ShadWindow
             : (button.Name ?? string.Empty).Replace("Keyboard", string.Empty).Replace("Button", string.Empty);
         button.Content = FormatKey(key);
         button.CommandParameter = key;
+    }
+
+    private void SetControllerBindingButton(Button button, ControllerBinding binding)
+    {
+        button.Tag = button.Tag is string action
+            ? action
+            : (button.Name ?? string.Empty).Replace("Controller", string.Empty).Replace("Button", string.Empty);
+        button.Content = FormatControllerBinding(binding);
+        button.CommandParameter = binding;
     }
 
     private void UpdateKeyboardBindingButtonStates()
@@ -507,10 +559,28 @@ public partial class SettingsWindow : ShadWindow
         UpdateKeyboardBindingButtonState(KeyboardRightButton, "Right");
     }
 
+    private void UpdateControllerBindingButtonStates()
+    {
+        UpdateControllerBindingButtonState(ControllerAButton, "A");
+        UpdateControllerBindingButtonState(ControllerBButton, "B");
+        UpdateControllerBindingButtonState(ControllerSelectButton, "Select");
+        UpdateControllerBindingButtonState(ControllerStartButton, "Start");
+        UpdateControllerBindingButtonState(ControllerUpButton, "Up");
+        UpdateControllerBindingButtonState(ControllerDownButton, "Down");
+        UpdateControllerBindingButtonState(ControllerLeftButton, "Left");
+        UpdateControllerBindingButtonState(ControllerRightButton, "Right");
+    }
+
     private void UpdateKeyboardBindingButtonState(Button button, string action)
     {
         var waiting = string.Equals(_pendingKeyboardBindingAction, action, StringComparison.Ordinal);
         button.Content = waiting ? "Press a key..." : FormatKey(ReadButtonKey(button));
+    }
+
+    private void UpdateControllerBindingButtonState(Button button, string action)
+    {
+        var waiting = string.Equals(_pendingControllerBindingAction, action, StringComparison.Ordinal);
+        button.Content = waiting ? "Press a button..." : FormatControllerBinding(ReadControllerBinding(button));
     }
 
     private void UpdateKeyboardCaptureText()
@@ -518,6 +588,13 @@ public partial class SettingsWindow : ShadWindow
         KeyboardCaptureText.Text = _pendingKeyboardBindingAction is null
             ? "Click a command, then press the key you want to assign."
             : $"Press a key for {_pendingKeyboardBindingAction}. Press Esc to cancel.";
+    }
+
+    private void UpdateControllerCaptureText()
+    {
+        ControllerCaptureText.Text = _pendingControllerBindingAction is null
+            ? "Click a command, then press a controller button or move a stick."
+            : $"Press a controller input for {_pendingControllerBindingAction}. Press Esc to cancel.";
     }
 
     private void ScheduleAudioSettingsApply()
@@ -662,6 +739,7 @@ public partial class SettingsWindow : ShadWindow
         return new InputSettings
         {
             SelectedControllerId = GetSelectedControllerId(),
+            AnalogDPadMode = (ControllerAnalogDPadComboBox.SelectedItem as ControllerAnalogDPadOption)?.Mode ?? defaults.AnalogDPadMode,
             KeyboardAKey = ReadButtonKey(KeyboardAButton, defaults.KeyboardAKey),
             KeyboardBKey = ReadButtonKey(KeyboardBButton, defaults.KeyboardBKey),
             KeyboardSelectKey = ReadButtonKey(KeyboardSelectButton, defaults.KeyboardSelectKey),
@@ -670,14 +748,14 @@ public partial class SettingsWindow : ShadWindow
             KeyboardDownKey = ReadButtonKey(KeyboardDownButton, defaults.KeyboardDownKey),
             KeyboardLeftKey = ReadButtonKey(KeyboardLeftButton, defaults.KeyboardLeftKey),
             KeyboardRightKey = ReadButtonKey(KeyboardRightButton, defaults.KeyboardRightKey),
-            ControllerA = (ControllerAComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerA,
-            ControllerB = (ControllerBComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerB,
-            ControllerSelect = (ControllerSelectComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerSelect,
-            ControllerStart = (ControllerStartComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerStart,
-            ControllerUp = (ControllerUpComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerUp,
-            ControllerDown = (ControllerDownComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerDown,
-            ControllerLeft = (ControllerLeftComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerLeft,
-            ControllerRight = (ControllerRightComboBox.SelectedItem as ControllerBindingOption)?.Binding ?? defaults.ControllerRight
+            ControllerA = ReadControllerBinding(ControllerAButton, defaults.ControllerA),
+            ControllerB = ReadControllerBinding(ControllerBButton, defaults.ControllerB),
+            ControllerSelect = ReadControllerBinding(ControllerSelectButton, defaults.ControllerSelect),
+            ControllerStart = ReadControllerBinding(ControllerStartButton, defaults.ControllerStart),
+            ControllerUp = ReadControllerBinding(ControllerUpButton, defaults.ControllerUp),
+            ControllerDown = ReadControllerBinding(ControllerDownButton, defaults.ControllerDown),
+            ControllerLeft = ReadControllerBinding(ControllerLeftButton, defaults.ControllerLeft),
+            ControllerRight = ReadControllerBinding(ControllerRightButton, defaults.ControllerRight)
         };
     }
 
@@ -768,16 +846,6 @@ public partial class SettingsWindow : ShadWindow
         return (ControllerDeviceComboBox.SelectedItem as ControllerDeviceInfo)?.Id ?? ControllerDeviceInfo.AutoId;
     }
 
-    private static ControllerBindingOption SelectBindingOption(
-        IReadOnlyList<ControllerBindingOption> options,
-        ControllerBinding desiredBinding,
-        ControllerBinding fallbackBinding)
-    {
-        return options.FirstOrDefault(option => option.Binding == desiredBinding)
-            ?? options.FirstOrDefault(option => option.Binding == fallbackBinding)
-            ?? options.First();
-    }
-
     private static int ReadAudioLatency(Slider slider)
     {
         return Math.Clamp((int)Math.Round(slider.Value), 40, 240);
@@ -857,9 +925,32 @@ public partial class SettingsWindow : ShadWindow
         };
     }
 
+    private Button? GetControllerBindingButton(string action)
+    {
+        return action switch
+        {
+            "A" => ControllerAButton,
+            "B" => ControllerBButton,
+            "Select" => ControllerSelectButton,
+            "Start" => ControllerStartButton,
+            "Up" => ControllerUpButton,
+            "Down" => ControllerDownButton,
+            "Left" => ControllerLeftButton,
+            "Right" => ControllerRightButton,
+            _ => null
+        };
+    }
+
     private static Key ReadButtonKey(Button button, Key fallback = Key.None)
     {
         return button.CommandParameter is Key key ? key : fallback;
+    }
+
+    private static ControllerBinding ReadControllerBinding(Button button, ControllerBinding? fallback = null)
+    {
+        return button.CommandParameter is ControllerBinding binding
+            ? binding
+            : fallback ?? ControllerBinding.None();
     }
 
     private static string FormatKey(Key key)
@@ -880,5 +971,53 @@ public partial class SettingsWindow : ShadWindow
             Key.Space => "Space",
             _ => key.ToString()
         };
+    }
+
+    private static string FormatControllerBinding(ControllerBinding binding)
+    {
+        return ControllerBindingCatalog.GetDisplayName(binding);
+    }
+
+    private DispatcherTimer CreateControllerBindingCaptureTimer()
+    {
+        var timer = new DispatcherTimer
+        {
+            Interval = TimeSpan.FromMilliseconds(50)
+        };
+
+        timer.Tick += ControllerBindingCaptureTimer_OnTick;
+        timer.Start();
+        return timer;
+    }
+
+    private void ControllerBindingCaptureTimer_OnTick(object? sender, EventArgs e)
+    {
+        if (_pendingControllerBindingAction is null || _inputState is null)
+        {
+            return;
+        }
+
+        if (!_inputState.TryCaptureControllerBinding(GetSelectedControllerId(), out var capture))
+        {
+            return;
+        }
+
+        AssignPendingControllerBinding(capture.Binding);
+    }
+
+    private void CancelPendingBindingCapture()
+    {
+        _pendingKeyboardBindingAction = null;
+        UpdateKeyboardBindingButtonStates();
+        UpdateKeyboardCaptureText();
+        CancelControllerBindingCapture();
+    }
+
+    private void CancelControllerBindingCapture()
+    {
+        _pendingControllerBindingAction = null;
+        _inputState?.CancelControllerBindingCapture();
+        UpdateControllerBindingButtonStates();
+        UpdateControllerCaptureText();
     }
 }
