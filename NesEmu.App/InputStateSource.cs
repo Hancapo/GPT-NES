@@ -1,17 +1,16 @@
-using System.Runtime.InteropServices;
 using Avalonia.Input;
 using NesEmu.Core;
 
 namespace NesEmu.App;
 
-public sealed class InputStateSource
+public sealed class InputStateSource : IDisposable
 {
     private const double DefaultAxisThreshold = 0.35;
-    private const uint ErrorSuccess = 0;
-    private static readonly bool IsGamepadRuntimeAvailable = OperatingSystem.IsWindows();
     private readonly HashSet<Key> _pressedKeys = [];
     private readonly object _sync = new();
+    private readonly SdlGamepadBackend _gamepadBackend = new();
     private InputSettings _settings = InputSettings.CreateDefault();
+    private bool _disposed;
 
     public void SetKey(Key key, bool pressed)
     {
@@ -60,23 +59,7 @@ public sealed class InputStateSource
             new(ControllerDeviceInfo.AutoId, "Auto detect", ControllerDeviceSource.Auto, -1)
         };
 
-        if (!IsGamepadRuntimeAvailable)
-        {
-            return devices;
-        }
-
-        for (var i = 0; i < 4; i++)
-        {
-            if (TryGetXInputState((uint)i, out _))
-            {
-                devices.Add(new ControllerDeviceInfo(
-                    $"gamepad:{i}",
-                    $"Gamepad {i + 1}",
-                    ControllerDeviceSource.Gamepad,
-                    i));
-            }
-        }
-
+        devices.AddRange(_gamepadBackend.GetAvailableControllers());
         return devices;
     }
 
@@ -144,6 +127,17 @@ public sealed class InputStateSource
             keyboard.Right || controller.Right);
     }
 
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _gamepadBackend.Dispose();
+        _disposed = true;
+    }
+
     private ControllerState GetKeyboardState(HashSet<Key> pressedKeys, InputSettings settings)
     {
         return new ControllerState(
@@ -169,50 +163,32 @@ public sealed class InputStateSource
 
     private ControllerState ReadAutoController(InputSettings settings)
     {
-        if (!IsGamepadRuntimeAvailable)
-        {
-            return default;
-        }
-
-        for (var i = 0; i < 4; i++)
-        {
-            if (TryGetXInputState((uint)i, out var state))
-            {
-                return ReadGamepad(state, settings);
-            }
-        }
-
-        return default;
-    }
-
-    private ControllerState ReadSelectedGamepad(InputSettings settings)
-    {
-        if (!IsGamepadRuntimeAvailable)
-        {
-            return default;
-        }
-
-        var index = ParseDeviceIndex(settings.SelectedControllerId, "gamepad:");
-        return index >= 0 && TryGetXInputState((uint)index, out var state)
+        return _gamepadBackend.TryReadAutoGamepad(out var state)
             ? ReadGamepad(state, settings)
             : default;
     }
 
-    private static ControllerState ReadGamepad(XInputState state, InputSettings settings)
+    private ControllerState ReadSelectedGamepad(InputSettings settings)
     {
-        var gamepad = CreateGamepadState(state.Gamepad);
-        return new ControllerState(
-            A: EvaluateGamepadBinding(gamepad, settings.ControllerA),
-            B: EvaluateGamepadBinding(gamepad, settings.ControllerB),
-            Select: EvaluateGamepadBinding(gamepad, settings.ControllerSelect),
-            Start: EvaluateGamepadBinding(gamepad, settings.ControllerStart),
-            Up: EvaluateGamepadBinding(gamepad, settings.ControllerUp),
-            Down: EvaluateGamepadBinding(gamepad, settings.ControllerDown),
-            Left: EvaluateGamepadBinding(gamepad, settings.ControllerLeft),
-            Right: EvaluateGamepadBinding(gamepad, settings.ControllerRight));
+        return _gamepadBackend.TryReadSelectedGamepad(settings.SelectedControllerId, out var state)
+            ? ReadGamepad(state, settings)
+            : default;
     }
 
-    private static bool EvaluateGamepadBinding(GamepadState state, ControllerBinding binding)
+    private static ControllerState ReadGamepad(SdlGamepadState state, InputSettings settings)
+    {
+        return new ControllerState(
+            A: EvaluateGamepadBinding(state, settings.ControllerA),
+            B: EvaluateGamepadBinding(state, settings.ControllerB),
+            Select: EvaluateGamepadBinding(state, settings.ControllerSelect),
+            Start: EvaluateGamepadBinding(state, settings.ControllerStart),
+            Up: EvaluateGamepadBinding(state, settings.ControllerUp),
+            Down: EvaluateGamepadBinding(state, settings.ControllerDown),
+            Left: EvaluateGamepadBinding(state, settings.ControllerLeft),
+            Right: EvaluateGamepadBinding(state, settings.ControllerRight));
+    }
+
+    private static bool EvaluateGamepadBinding(SdlGamepadState state, ControllerBinding binding)
     {
         return binding.Kind switch
         {
@@ -223,7 +199,7 @@ public sealed class InputStateSource
         };
     }
 
-    private static double ReadGamepadAxis(GamepadState state, int axisIndex)
+    private static double ReadGamepadAxis(SdlGamepadState state, int axisIndex)
     {
         return axisIndex switch
         {
@@ -257,111 +233,10 @@ public sealed class InputStateSource
             return ControllerDeviceSource.None;
         }
 
-        if (controllerId.StartsWith("gamepad:", StringComparison.OrdinalIgnoreCase))
-        {
-            return ControllerDeviceSource.Gamepad;
-        }
-
-        return ControllerDeviceSource.Auto;
-    }
-
-    private static int ParseDeviceIndex(string? controllerId, string prefix)
-    {
-        return controllerId is not null
-               && controllerId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
-               && int.TryParse(controllerId[prefix.Length..], out var index)
-            ? index
-            : -1;
-    }
-
-    private static bool TryGetXInputState(uint userIndex, out XInputState state)
-    {
-        try
-        {
-            if (XInputGetState(userIndex, out state) == ErrorSuccess)
-            {
-                return true;
-            }
-        }
-        catch (DllNotFoundException)
-        {
-        }
-        catch (EntryPointNotFoundException)
-        {
-        }
-
-        state = default;
-        return false;
-    }
-
-    private static GamepadState CreateGamepadState(XInputGamepad gamepad)
-    {
-        var buttons = GamepadButtons.None;
-        if ((gamepad.Buttons & 0x1000) != 0) buttons |= GamepadButtons.A;
-        if ((gamepad.Buttons & 0x2000) != 0) buttons |= GamepadButtons.B;
-        if ((gamepad.Buttons & 0x4000) != 0) buttons |= GamepadButtons.X;
-        if ((gamepad.Buttons & 0x8000) != 0) buttons |= GamepadButtons.Y;
-        if ((gamepad.Buttons & 0x0020) != 0) buttons |= GamepadButtons.View;
-        if ((gamepad.Buttons & 0x0010) != 0) buttons |= GamepadButtons.Menu;
-        if ((gamepad.Buttons & 0x0100) != 0) buttons |= GamepadButtons.LeftShoulder;
-        if ((gamepad.Buttons & 0x0200) != 0) buttons |= GamepadButtons.RightShoulder;
-        if ((gamepad.Buttons & 0x0001) != 0) buttons |= GamepadButtons.DPadUp;
-        if ((gamepad.Buttons & 0x0002) != 0) buttons |= GamepadButtons.DPadDown;
-        if ((gamepad.Buttons & 0x0004) != 0) buttons |= GamepadButtons.DPadLeft;
-        if ((gamepad.Buttons & 0x0008) != 0) buttons |= GamepadButtons.DPadRight;
-
-        return new GamepadState(
-            buttons,
-            NormalizeStick(gamepad.LeftThumbX),
-            NormalizeStick(gamepad.LeftThumbY),
-            NormalizeStick(gamepad.RightThumbX),
-            NormalizeStick(gamepad.RightThumbY),
-            NormalizeTrigger(gamepad.LeftTrigger),
-            NormalizeTrigger(gamepad.RightTrigger));
-    }
-
-    private static double NormalizeStick(short value)
-    {
-        return value < 0
-            ? Math.Max(value / 32768.0, -1.0)
-            : Math.Min(value / 32767.0, 1.0);
-    }
-
-    private static double NormalizeTrigger(byte value)
-    {
-        return value / 255.0;
+        return controllerId.StartsWith("gamepad:", StringComparison.OrdinalIgnoreCase)
+            ? ControllerDeviceSource.Gamepad
+            : ControllerDeviceSource.Auto;
     }
 
     private static bool KeyPressed(IReadOnlySet<Key> pressedKeys, Key key) => key != Key.None && pressedKeys.Contains(key);
-
-    [DllImport("xinput1_4.dll", EntryPoint = "XInputGetState", CallingConvention = CallingConvention.Winapi)]
-    private static extern uint XInputGetState(uint userIndex, out XInputState state);
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct XInputState
-    {
-        public uint PacketNumber;
-        public XInputGamepad Gamepad;
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct XInputGamepad
-    {
-        public ushort Buttons;
-        public byte LeftTrigger;
-        public byte RightTrigger;
-        public short LeftThumbX;
-        public short LeftThumbY;
-        public short RightThumbX;
-        public short RightThumbY;
-    }
-
-    private readonly record struct GamepadState(
-        GamepadButtons Buttons,
-        double LeftThumbstickX,
-        double LeftThumbstickY,
-        double RightThumbstickX,
-        double RightThumbstickY,
-        double LeftTrigger,
-        double RightTrigger);
 }

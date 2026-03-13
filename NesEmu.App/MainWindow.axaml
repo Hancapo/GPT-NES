@@ -62,13 +62,20 @@
         <MenuItem x:Name="StopMenuItem" Header="Stop" Click="StopButton_OnClick" />
         <MenuItem x:Name="ResetMenuItem" Header="Reset" Click="ResetButton_OnClick" />
       </MenuItem>
+      <MenuItem Header="View">
+        <MenuItem x:Name="FullscreenMenuItem"
+                  Header="Enter Fullscreen"
+                  Click="FullscreenMenuItem_OnClick" />
+      </MenuItem>
       <MenuItem Header="Settings" Click="SettingsMenuItem_OnClick" />
     </Menu>
   </shadui:Window.MenuBarContent>
 
-  <Grid RowDefinitions="Auto,*,Auto"
+  <Grid x:Name="RootLayoutGrid"
+        RowDefinitions="Auto,*,Auto"
         Margin="24,22,24,20">
-    <Border Grid.Row="0"
+    <Border x:Name="TopPanelBorder"
+            Grid.Row="0"
             Classes="section"
             Padding="22,20"
             Margin="0,0,0,18">
@@ -113,7 +120,8 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="1"
+    <Border x:Name="ViewportShellBorder"
+            Grid.Row="1"
             Classes="section"
             Padding="24">
       <Grid>
@@ -207,7 +215,8 @@
       </Grid>
     </Border>
 
-    <Border Grid.Row="2"
+    <Border x:Name="StatusPanelBorder"
+            Grid.Row="2"
             Classes="section"
             Padding="16,12"
             Margin="0,18,0,0">

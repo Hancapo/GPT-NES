@@ -16,6 +16,18 @@ namespace NesEmu.App;
 
 public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 {
+    private static readonly Thickness WindowedRootMargin = new(24, 22, 24, 20);
+    private static readonly Thickness FullscreenRootMargin = new(8);
+    private static readonly Thickness WindowedViewportShellPadding = new(24);
+    private static readonly Thickness FullscreenViewportShellPadding = new(0);
+    private static readonly Thickness WindowedGameViewportPadding = new(28);
+    private static readonly Thickness FullscreenGameViewportPadding = new(8);
+    private static readonly CornerRadius WindowedSectionCornerRadius = new(22);
+    private static readonly CornerRadius WindowedGameViewportCornerRadius = new(20);
+    private static readonly CornerRadius FullscreenCornerRadius = new(0);
+    private static readonly Thickness WindowedBorderThickness = new(1);
+    private static readonly Thickness FullscreenBorderThickness = new(0);
+
     private readonly InputStateSource _inputState = new();
     private readonly MidiOutputService _midiOutput = new();
     private readonly EmulatorHost _emulator;
@@ -34,6 +46,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private int _uiFrameScheduled;
     private int _fpsFrameCount;
     private double _lastFps;
+    private WindowState _windowedStateBeforeFullscreen = WindowState.Normal;
 
     public MainWindow()
     {
@@ -60,20 +73,46 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         SetTransportEnabled(false);
         ClearViewport();
         ApplyVideoRenderer();
+        UpdateFullscreenPresentation();
         SetStatus("Ready.");
         UpdateUiState();
+    }
+
+    protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
+    {
+        base.OnPropertyChanged(change);
+
+        if (change.Property == WindowStateProperty)
+        {
+            UpdateFullscreenPresentation();
+        }
     }
 
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
         _settingsWindow?.Close();
         OpenGlGameView.RendererFailed -= OpenGlGameView_OnRendererFailed;
+        _inputState.Dispose();
         _emulator.Dispose();
         _midiOutput.Dispose();
     }
 
     private void PreviewKeyDownHandler(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.F11 || (e.Key == Key.Enter && e.KeyModifiers.HasFlag(KeyModifiers.Alt)))
+        {
+            ToggleFullscreen();
+            e.Handled = true;
+            return;
+        }
+
+        if (e.Key == Key.Escape && WindowState == WindowState.FullScreen)
+        {
+            ExitFullscreen();
+            e.Handled = true;
+            return;
+        }
+
         if (!GameViewport.IsKeyboardFocusWithin)
         {
             return;
@@ -188,6 +227,11 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private void ExitMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void FullscreenMenuItem_OnClick(object? sender, RoutedEventArgs e)
+    {
+        ToggleFullscreen();
     }
 
     private void SettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
@@ -488,6 +532,75 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         if (_settingsWindow is null || !_settingsWindow.IsVisible)
         {
             GameViewport.Focus();
+        }
+    }
+
+    private void ToggleFullscreen()
+    {
+        if (WindowState == WindowState.FullScreen)
+        {
+            ExitFullscreen();
+        }
+        else
+        {
+            EnterFullscreen();
+        }
+    }
+
+    private void EnterFullscreen()
+    {
+        _windowedStateBeforeFullscreen = WindowState == WindowState.Minimized
+            ? WindowState.Normal
+            : WindowState;
+        WindowState = WindowState.FullScreen;
+        CaptureGameInput();
+    }
+
+    private void ExitFullscreen()
+    {
+        WindowState = _windowedStateBeforeFullscreen == WindowState.FullScreen
+            ? WindowState.Normal
+            : _windowedStateBeforeFullscreen;
+        CaptureGameInput();
+    }
+
+    private void UpdateFullscreenPresentation()
+    {
+        var isFullscreen = WindowState == WindowState.FullScreen;
+
+        IsMenuVisible = !isFullscreen;
+
+        if (FullscreenMenuItem is not null)
+        {
+            FullscreenMenuItem.Header = isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen";
+        }
+
+        if (RootLayoutGrid is not null)
+        {
+            RootLayoutGrid.Margin = isFullscreen ? FullscreenRootMargin : WindowedRootMargin;
+        }
+
+        if (TopPanelBorder is not null)
+        {
+            TopPanelBorder.IsVisible = !isFullscreen;
+        }
+
+        if (StatusPanelBorder is not null)
+        {
+            StatusPanelBorder.IsVisible = !isFullscreen;
+        }
+
+        if (ViewportShellBorder is not null)
+        {
+            ViewportShellBorder.Padding = isFullscreen ? FullscreenViewportShellPadding : WindowedViewportShellPadding;
+            ViewportShellBorder.CornerRadius = isFullscreen ? FullscreenCornerRadius : WindowedSectionCornerRadius;
+        }
+
+        if (GameViewport is not null)
+        {
+            GameViewport.Padding = isFullscreen ? FullscreenGameViewportPadding : WindowedGameViewportPadding;
+            GameViewport.CornerRadius = isFullscreen ? FullscreenCornerRadius : WindowedGameViewportCornerRadius;
+            GameViewport.BorderThickness = isFullscreen ? FullscreenBorderThickness : WindowedBorderThickness;
         }
     }
 }

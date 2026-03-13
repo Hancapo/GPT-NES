@@ -9,6 +9,10 @@ public sealed class EmulatorHost : IDisposable
 {
     private static readonly TimeSpan FrameDuration = TimeSpan.FromSeconds(1.0 / 60.0988138974405);
     private static readonly TimeSpan PreciseSleepMargin = TimeSpan.FromMilliseconds(2);
+    private static readonly TimeSpan AudioRecoveryRetryDelay = TimeSpan.FromMilliseconds(350);
+    private static readonly TimeSpan LinuxStartupAudioRecoveryInitialDelay = TimeSpan.FromMilliseconds(700);
+    private static readonly TimeSpan LinuxStartupAudioRecoveryRetryDelay = TimeSpan.FromMilliseconds(1200);
+    private const int LinuxStartupAudioRecoveryAttempts = 3;
 
     private readonly Func<ControllerState> _inputProvider;
     private readonly Action<uint[]> _frameCallback;
@@ -25,12 +29,16 @@ public sealed class EmulatorHost : IDisposable
     private bool _hasRealtimeAudioOutput;
 
     private CancellationTokenSource? _loopCancellation;
+    private CancellationTokenSource? _linuxAudioRecoveryCancellation;
     private Task? _loopTask;
     private NesConsole? _console;
     private bool _disposed;
     private volatile bool _paused = true;
     private volatile bool _stopped;
     private bool _playbackPrimed;
+    private bool _linuxAudioBackendPrimed;
+    private long _nextAudioRecoveryAttemptTick;
+    private int _stalledPlaybackFrames;
 
     public EmulatorHost(Func<ControllerState> inputProvider, Action<uint[]> frameCallback, MidiOutputService midiOutput)
     {
@@ -41,8 +49,9 @@ public sealed class EmulatorHost : IDisposable
         _audioSettings = AudioOutputSettings.CreateDefault();
         ConfigureAudioTiming(_audioSettings);
         _masterVolumeScale = _audioSettings.MasterVolumePercent / 100.0f;
-        _audioOutput = CreateAudioOutputWithFallback(_audioSettings);
+        _audioOutput = CreatePreparedAudioOutputWithFallback(_audioSettings);
         _hasRealtimeAudioOutput = _audioOutput.HasRealtimeOutput;
+        _nextAudioRecoveryAttemptTick = 0;
     }
 
     public bool IsPaused => _paused;
@@ -57,64 +66,15 @@ public sealed class EmulatorHost : IDisposable
 
     public bool TryApplyAudioSettings(AudioOutputSettings settings, out string? error)
     {
-        error = null;
-        if (_disposed)
-        {
-            error = "Audio output is not available.";
-            return false;
-        }
-
-        var normalized = NormalizeAudioSettings(settings);
-        var hadLoop = _loopCancellation is not null;
-        var previousSettings = _audioSettings.Clone();
-        var previousOutput = _audioOutput;
-        var previousRealtimeAudioOutput = _hasRealtimeAudioOutput;
-
-        StopLoop();
-        PausePlaybackAndFlush();
-
-        try
-        {
-            ConfigureAudioTiming(normalized);
-            var newOutput = CreateAudioOutput(normalized);
-            _audioSettings = normalized;
-            _audioOutput = newOutput;
-            _hasRealtimeAudioOutput = newOutput.HasRealtimeOutput;
-            _masterVolumeScale = normalized.MasterVolumePercent / 100.0f;
-            _playbackPrimed = false;
-
-            previousOutput.Stop();
-            previousOutput.Dispose();
-
-            if (hadLoop)
-            {
-                StartLoop();
-            }
-
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _audioSettings = previousSettings;
-            _audioOutput = previousOutput;
-            _hasRealtimeAudioOutput = previousRealtimeAudioOutput;
-            ConfigureAudioTiming(previousSettings);
-            _masterVolumeScale = previousSettings.MasterVolumePercent / 100.0f;
-
-            if (hadLoop)
-            {
-                StartLoop();
-            }
-
-            error = ex.Message;
-            return false;
-        }
+        return TryRecreateAudioOutput(settings, rescheduleLinuxStartupRecovery: true, out error);
     }
 
     public void LoadRom(string romPath)
     {
+        CancelLinuxStartupAudioRecovery();
         StopLoop();
         PausePlaybackAndFlush();
+        RefreshAudioOutputForPlaybackStart();
         _midiOutput.Silence();
 
         _console?.Dispose();
@@ -123,11 +83,14 @@ public sealed class EmulatorHost : IDisposable
         _paused = false;
         _stopped = false;
         _playbackPrimed = false;
+        _stalledPlaybackFrames = 0;
         StartLoop();
+        ScheduleLinuxStartupAudioRecovery();
     }
 
     public void Reset()
     {
+        CancelLinuxStartupAudioRecovery();
         _console?.Reset();
         PausePlaybackAndFlush();
         _midiOutput.Silence();
@@ -146,6 +109,7 @@ public sealed class EmulatorHost : IDisposable
             _stopped = false;
             _paused = false;
             _playbackPrimed = false;
+            ScheduleLinuxStartupAudioRecovery();
             return;
         }
 
@@ -153,12 +117,14 @@ public sealed class EmulatorHost : IDisposable
 
         if (_paused)
         {
+            CancelLinuxStartupAudioRecovery();
             PausePlaybackAndFlush();
             _midiOutput.Silence();
         }
         else
         {
             _playbackPrimed = false;
+            ScheduleLinuxStartupAudioRecovery();
         }
     }
 
@@ -169,6 +135,7 @@ public sealed class EmulatorHost : IDisposable
             return;
         }
 
+        CancelLinuxStartupAudioRecovery();
         _console.Reset();
         _stopped = true;
         _paused = false;
@@ -185,6 +152,7 @@ public sealed class EmulatorHost : IDisposable
         }
 
         _disposed = true;
+        CancelLinuxStartupAudioRecovery();
         StopLoop();
         _midiOutput.Silence();
         _audioOutput.Stop();
@@ -242,6 +210,7 @@ public sealed class EmulatorHost : IDisposable
                 continue;
             }
 
+            RecoverMissingAudioOutputIfNeeded();
             _console.SetControllerState(0, _inputProvider());
             _console.RunFrame();
             PumpAudio();
@@ -259,30 +228,20 @@ public sealed class EmulatorHost : IDisposable
             nextFrameTime += FrameDuration;
             var remaining = nextFrameTime - stopwatch.Elapsed;
             var bufferedDuration = _audioOutput.BufferedDuration;
+            RecoverStalledPlaybackIfNeeded(bufferedDuration);
 
-            if (!_hasRealtimeAudioOutput)
+            if (remaining > TimeSpan.Zero)
             {
-                if (remaining > TimeSpan.Zero)
-                {
-                    await WaitForNextFrameAsync(stopwatch, nextFrameTime, cancellationToken);
-                }
-                else if (remaining < -FrameDuration)
-                {
-                    nextFrameTime = stopwatch.Elapsed;
-                }
-
+                await WaitForNextFrameAsync(stopwatch, nextFrameTime, cancellationToken);
                 continue;
             }
 
-            if (bufferedDuration >= _targetBufferedDuration && remaining > TimeSpan.Zero)
-            {
-                await WaitForNextFrameAsync(stopwatch, nextFrameTime, cancellationToken);
-            }
-            else if (bufferedDuration > _maximumBufferedDuration)
+            if (_hasRealtimeAudioOutput && bufferedDuration > _maximumBufferedDuration)
             {
                 await Task.Delay(TimeSpan.FromMilliseconds(1), cancellationToken);
             }
-            else if (remaining < -FrameDuration)
+
+            if (remaining < -FrameDuration)
             {
                 nextFrameTime = stopwatch.Elapsed;
             }
@@ -398,21 +357,271 @@ public sealed class EmulatorHost : IDisposable
         var bufferDuration = TimeSpan.FromMilliseconds(Math.Max(normalized.OutputLatencyMilliseconds * 3, 180));
         return normalized.Backend switch
         {
+            AudioBackendKind.Sdl => new SdlAudioOutput(NesConsole.AudioSampleRate, bufferDuration, normalized.OutputLatencyMilliseconds),
             AudioBackendKind.OpenAl => new OpenAlAudioOutput(NesConsole.AudioSampleRate, bufferDuration, normalized.OutputLatencyMilliseconds),
             _ => throw new NotSupportedException($"Audio backend '{normalized.Backend}' is not supported.")
         };
     }
 
-    private static IAudioOutput CreateAudioOutputWithFallback(AudioOutputSettings settings)
+    private IAudioOutput CreatePreparedAudioOutput(AudioOutputSettings settings)
+    {
+        var output = CreateAudioOutput(settings);
+        if (!OperatingSystem.IsLinux()
+            || settings.Backend != AudioBackendKind.OpenAl
+            || _linuxAudioBackendPrimed
+            || !output.HasRealtimeOutput)
+        {
+            return output;
+        }
+
+        try
+        {
+            var warmedOutput = CreateAudioOutput(settings);
+            output.Stop();
+            output.Dispose();
+            _linuxAudioBackendPrimed = true;
+            return warmedOutput;
+        }
+        catch
+        {
+            return output;
+        }
+    }
+
+    private IAudioOutput CreatePreparedAudioOutputWithFallback(AudioOutputSettings settings)
     {
         try
         {
-            return CreateAudioOutput(settings);
+            return CreatePreparedAudioOutput(settings);
         }
         catch
         {
             return new NullAudioOutput();
         }
+    }
+
+    private void RefreshAudioOutputForPlaybackStart()
+    {
+        var previousOutput = _audioOutput;
+        _audioOutput = CreatePreparedAudioOutputWithFallback(_audioSettings);
+        _hasRealtimeAudioOutput = _audioOutput.HasRealtimeOutput;
+        _playbackPrimed = false;
+        _stalledPlaybackFrames = 0;
+        _nextAudioRecoveryAttemptTick = _hasRealtimeAudioOutput
+            ? 0
+            : Environment.TickCount64 + (long)AudioRecoveryRetryDelay.TotalMilliseconds;
+
+        previousOutput.Stop();
+        previousOutput.Dispose();
+    }
+
+    private void RecoverMissingAudioOutputIfNeeded()
+    {
+        if (_hasRealtimeAudioOutput || Environment.TickCount64 < _nextAudioRecoveryAttemptTick)
+        {
+            return;
+        }
+
+        TryRecoverAudioOutput();
+    }
+
+    private void RecoverStalledPlaybackIfNeeded(TimeSpan bufferedDuration)
+    {
+        if (!_hasRealtimeAudioOutput)
+        {
+            _stalledPlaybackFrames = 0;
+            return;
+        }
+
+        if (bufferedDuration < _resumeBufferedDuration)
+        {
+            _stalledPlaybackFrames = 0;
+            return;
+        }
+
+        if (_audioOutput.PlaybackState == AudioPlaybackState.Playing)
+        {
+            _stalledPlaybackFrames = 0;
+            return;
+        }
+
+        _stalledPlaybackFrames++;
+        if (_stalledPlaybackFrames < 8)
+        {
+            return;
+        }
+
+        _stalledPlaybackFrames = 0;
+        TryRecoverAudioOutput();
+    }
+
+    private void TryRecoverAudioOutput()
+    {
+        IAudioOutput? recoveredOutput = null;
+
+        try
+        {
+            recoveredOutput = CreatePreparedAudioOutput(_audioSettings);
+            var previousOutput = _audioOutput;
+            _audioOutput = recoveredOutput;
+            _hasRealtimeAudioOutput = recoveredOutput.HasRealtimeOutput;
+            _playbackPrimed = false;
+            _nextAudioRecoveryAttemptTick = 0;
+
+            previousOutput.Stop();
+            previousOutput.Dispose();
+        }
+        catch
+        {
+            recoveredOutput?.Dispose();
+            _nextAudioRecoveryAttemptTick = Environment.TickCount64 + (long)AudioRecoveryRetryDelay.TotalMilliseconds;
+        }
+    }
+
+    private bool TryRecreateAudioOutput(AudioOutputSettings settings, bool rescheduleLinuxStartupRecovery, out string? error)
+    {
+        error = null;
+        if (_disposed)
+        {
+            error = "Audio output is not available.";
+            return false;
+        }
+
+        var normalized = NormalizeAudioSettings(settings);
+        var hadLoop = _loopCancellation is not null;
+        var previousSettings = _audioSettings.Clone();
+        var previousOutput = _audioOutput;
+        var previousRealtimeAudioOutput = _hasRealtimeAudioOutput;
+
+        if (rescheduleLinuxStartupRecovery)
+        {
+            CancelLinuxStartupAudioRecovery();
+        }
+
+        StopLoop();
+        PausePlaybackAndFlush();
+
+        try
+        {
+            ConfigureAudioTiming(normalized);
+            var newOutput = CreatePreparedAudioOutput(normalized);
+            _audioSettings = normalized;
+            _audioOutput = newOutput;
+            _hasRealtimeAudioOutput = newOutput.HasRealtimeOutput;
+            _masterVolumeScale = normalized.MasterVolumePercent / 100.0f;
+            _playbackPrimed = false;
+            _stalledPlaybackFrames = 0;
+            _nextAudioRecoveryAttemptTick = 0;
+
+            previousOutput.Stop();
+            previousOutput.Dispose();
+
+            if (hadLoop)
+            {
+                StartLoop();
+                if (rescheduleLinuxStartupRecovery)
+                {
+                    ScheduleLinuxStartupAudioRecovery();
+                }
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _audioSettings = previousSettings;
+            _audioOutput = previousOutput;
+            _hasRealtimeAudioOutput = previousRealtimeAudioOutput;
+            ConfigureAudioTiming(previousSettings);
+            _masterVolumeScale = previousSettings.MasterVolumePercent / 100.0f;
+
+            if (hadLoop)
+            {
+                StartLoop();
+                if (rescheduleLinuxStartupRecovery)
+                {
+                    ScheduleLinuxStartupAudioRecovery();
+                }
+            }
+
+            error = ex.Message;
+            return false;
+        }
+    }
+
+    private void ScheduleLinuxStartupAudioRecovery()
+    {
+        if (!OperatingSystem.IsLinux()
+            || _console is null
+            || _audioSettings.Backend != AudioBackendKind.OpenAl)
+        {
+            return;
+        }
+
+        CancelLinuxStartupAudioRecovery();
+        _linuxAudioRecoveryCancellation = new CancellationTokenSource();
+        _ = Task.Run(() => RunLinuxStartupAudioRecoveryAsync(_linuxAudioRecoveryCancellation.Token));
+    }
+
+    private void CancelLinuxStartupAudioRecovery()
+    {
+        if (_linuxAudioRecoveryCancellation is null)
+        {
+            return;
+        }
+
+        _linuxAudioRecoveryCancellation.Cancel();
+        _linuxAudioRecoveryCancellation.Dispose();
+        _linuxAudioRecoveryCancellation = null;
+    }
+
+    private async Task RunLinuxStartupAudioRecoveryAsync(CancellationToken cancellationToken)
+    {
+        var delay = LinuxStartupAudioRecoveryInitialDelay;
+
+        for (var attempt = 0; attempt < LinuxStartupAudioRecoveryAttempts; attempt++)
+        {
+            try
+            {
+                await Task.Delay(delay, cancellationToken);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+
+            if (cancellationToken.IsCancellationRequested || IsAudioPlaybackHealthy())
+            {
+                return;
+            }
+
+            TryRecreateAudioOutput(_audioSettings, rescheduleLinuxStartupRecovery: false, out _);
+            delay = LinuxStartupAudioRecoveryRetryDelay;
+        }
+    }
+
+    private bool IsAudioPlaybackHealthy()
+    {
+        if (_disposed || _console is null || _paused || _stopped)
+        {
+            return true;
+        }
+
+        if (!_hasRealtimeAudioOutput)
+        {
+            return false;
+        }
+
+        var playbackState = _audioOutput.PlaybackState;
+        if (playbackState == AudioPlaybackState.Playing)
+        {
+            return true;
+        }
+
+        var bufferedDuration = _audioOutput.BufferedDuration;
+        return !_playbackPrimed
+            && bufferedDuration > TimeSpan.Zero
+            && bufferedDuration < _resumeBufferedDuration;
     }
 
     private static async Task WaitForNextFrameAsync(Stopwatch stopwatch, TimeSpan targetTime, CancellationToken cancellationToken)
@@ -449,5 +658,4 @@ public sealed class EmulatorHost : IDisposable
             samples[i] = Math.Clamp(samples[i] * _masterVolumeScale, -1.0f, 1.0f);
         }
     }
-
 }
