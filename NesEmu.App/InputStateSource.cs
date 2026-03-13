@@ -8,6 +8,7 @@ public sealed class InputStateSource
 {
     private const double DefaultAxisThreshold = 0.35;
     private const uint ErrorSuccess = 0;
+    private static readonly bool IsGamepadRuntimeAvailable = OperatingSystem.IsWindows();
     private readonly HashSet<Key> _pressedKeys = [];
     private readonly object _sync = new();
     private InputSettings _settings = InputSettings.CreateDefault();
@@ -58,6 +59,11 @@ public sealed class InputStateSource
             new(ControllerDeviceInfo.NoneId, "No controller", ControllerDeviceSource.None, -1),
             new(ControllerDeviceInfo.AutoId, "Auto detect", ControllerDeviceSource.Auto, -1)
         };
+
+        if (!IsGamepadRuntimeAvailable)
+        {
+            return devices;
+        }
 
         for (var i = 0; i < 4; i++)
         {
@@ -163,6 +169,11 @@ public sealed class InputStateSource
 
     private ControllerState ReadAutoController(InputSettings settings)
     {
+        if (!IsGamepadRuntimeAvailable)
+        {
+            return default;
+        }
+
         for (var i = 0; i < 4; i++)
         {
             if (TryGetXInputState((uint)i, out var state))
@@ -176,6 +187,11 @@ public sealed class InputStateSource
 
     private ControllerState ReadSelectedGamepad(InputSettings settings)
     {
+        if (!IsGamepadRuntimeAvailable)
+        {
+            return default;
+        }
+
         var index = ParseDeviceIndex(settings.SelectedControllerId, "gamepad:");
         return index >= 0 && TryGetXInputState((uint)index, out var state)
             ? ReadGamepad(state, settings)

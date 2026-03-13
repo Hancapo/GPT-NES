@@ -8,6 +8,7 @@
     <LangVersion>preview</LangVersion>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifiers>win-x64;linux-x64</RuntimeIdentifiers>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +20,7 @@
     <PackageReference Include="Avalonia.Desktop" Version="11.3.12" />
     <PackageReference Include="NAudio" Version="2.2.1" />
     <PackageReference Include="ShadUI" Version="0.1.6" />
+    <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
   </ItemGroup>
 

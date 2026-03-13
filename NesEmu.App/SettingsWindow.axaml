@@ -128,14 +128,14 @@
                         IsVisible="False"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="20"
+              <StackPanel Margin="20"
                         Spacing="16">
               <StackPanel Spacing="4">
                 <TextBlock FontSize="24"
                            FontWeight="SemiBold"
                            Text="Audio" />
                 <TextBlock Classes="help"
-                           Text="Playback latency and volume for the emulator output." />
+                           Text="Playback API, latency and volume for the emulator output." />
               </StackPanel>
 
               <Border Classes="section">
@@ -143,37 +143,51 @@
                   <TextBlock Classes="group-title" Text="Playback" />
 
                   <Grid ColumnDefinitions="170,*,Auto"
-                        RowDefinitions="Auto,Auto"
+                        RowDefinitions="Auto,Auto,Auto"
                         ColumnSpacing="16"
                         RowSpacing="16">
-                    <TextBlock VerticalAlignment="Center" Text="Output latency" />
+                    <TextBlock VerticalAlignment="Center" Text="Audio API" />
+                    <ComboBox x:Name="AudioApiComboBox"
+                            Grid.Column="1"
+                              Grid.ColumnSpan="2"
+                              Classes="setting-combo"
+                              SelectionChanged="AudioSelection_OnChanged" />
+
+                    <TextBlock Grid.Row="1"
+                               VerticalAlignment="Center"
+                               Text="Output latency" />
                     <Slider x:Name="AudioLatencySlider"
+                            Grid.Row="1"
                             Grid.Column="1"
                             Minimum="40"
                             Maximum="240"
                             ValueChanged="AudioSlider_OnValueChanged" />
                     <TextBlock x:Name="AudioLatencyText"
-                               Grid.Column="2"
-                               Width="68"
-                               VerticalAlignment="Center"
-                               TextAlignment="Right" />
-
-                    <TextBlock Grid.Row="1"
-                               VerticalAlignment="Center"
-                               Text="Master volume" />
-                    <Slider x:Name="AudioVolumeSlider"
-                            Grid.Row="1"
-                            Grid.Column="1"
-                            Minimum="0"
-                            Maximum="200"
-                            ValueChanged="AudioSlider_OnValueChanged" />
-                    <TextBlock x:Name="AudioVolumeText"
                                Grid.Row="1"
                                Grid.Column="2"
                                Width="68"
                                VerticalAlignment="Center"
                                TextAlignment="Right" />
+
+                    <TextBlock Grid.Row="2"
+                               VerticalAlignment="Center"
+                               Text="Master volume" />
+                    <Slider x:Name="AudioVolumeSlider"
+                            Grid.Row="2"
+                            Grid.Column="1"
+                            Minimum="0"
+                            Maximum="200"
+                            ValueChanged="AudioSlider_OnValueChanged" />
+                    <TextBlock x:Name="AudioVolumeText"
+                               Grid.Row="2"
+                               Grid.Column="2"
+                               Width="68"
+                               VerticalAlignment="Center"
+                               TextAlignment="Right" />
                   </Grid>
+
+                  <TextBlock x:Name="AudioApiDescriptionText"
+                             Classes="help" />
                 </StackPanel>
               </Border>
             </StackPanel>

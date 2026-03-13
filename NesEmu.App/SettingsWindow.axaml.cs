@@ -87,6 +87,7 @@ public partial class SettingsWindow : ShadWindow
 
     private void InitializeOptions()
     {
+        AudioApiComboBox.ItemsSource = AudioBackendCatalog.Options;
         VideoRendererComboBox.ItemsSource = VideoRendererCatalog.Options;
         Pulse1ProgramComboBox.ItemsSource = MidiCatalog.Programs;
         Pulse2ProgramComboBox.ItemsSource = MidiCatalog.Programs;
@@ -119,9 +120,14 @@ public partial class SettingsWindow : ShadWindow
 
     private void LoadAudioSettings(AudioOutputSettings settings)
     {
+        var selectedBackend = AudioBackendCatalog.Options.FirstOrDefault(option => option.Backend == settings.Backend)
+            ?? AudioBackendCatalog.Options.First();
+
+        AudioApiComboBox.SelectedItem = selectedBackend;
         AudioLatencySlider.Value = settings.OutputLatencyMilliseconds;
         AudioVolumeSlider.Value = settings.MasterVolumePercent;
         UpdateAudioLabels();
+        UpdateAudioDescription();
     }
 
     public void RefreshVideoSettings(VideoOutputSettings settings)
@@ -198,6 +204,17 @@ public partial class SettingsWindow : ShadWindow
     private void AudioSlider_OnValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         UpdateAudioLabels();
+        ScheduleAudioSettingsApply();
+    }
+
+    private void AudioSelection_OnChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressEvents)
+        {
+            return;
+        }
+
+        UpdateAudioDescription();
         ScheduleAudioSettingsApply();
     }
 
@@ -375,6 +392,17 @@ public partial class SettingsWindow : ShadWindow
         AudioVolumeText.Text = FormatPercent(AudioVolumeSlider.Value);
     }
 
+    private void UpdateAudioDescription()
+    {
+        if (AudioApiDescriptionText is null)
+        {
+            return;
+        }
+
+        var selected = AudioApiComboBox.SelectedItem as AudioBackendOption;
+        AudioApiDescriptionText.Text = selected?.Description ?? string.Empty;
+    }
+
     private void UpdateVideoDescription()
     {
         if (VideoRendererDescriptionText is null)
@@ -533,13 +561,15 @@ public partial class SettingsWindow : ShadWindow
 
         var settings = new AudioOutputSettings
         {
+            Backend = (AudioApiComboBox.SelectedItem as AudioBackendOption)?.Backend ?? AudioBackendKind.OpenAl,
             OutputLatencyMilliseconds = ReadAudioLatency(AudioLatencySlider),
             MasterVolumePercent = ReadPercent(AudioVolumeSlider)
         };
 
         if (_emulator.TryApplyAudioSettings(settings, out var error))
         {
-            _statusSink?.Invoke($"Audio updated: {settings.OutputLatencyMilliseconds} ms, {settings.MasterVolumePercent}% volume.");
+            var backendName = (AudioApiComboBox.SelectedItem as AudioBackendOption)?.DisplayName ?? "OpenAL";
+            _statusSink?.Invoke($"Audio updated: {backendName}, {settings.OutputLatencyMilliseconds} ms, {settings.MasterVolumePercent}% volume.");
             return;
         }
 

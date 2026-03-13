@@ -3,6 +3,9 @@
 [Oo]bj/
 [Aa]rtifacts/
 [Pp]ublish/
+*.flatpak
+packaging/steamdeck/flatpak/build/
+packaging/steamdeck/flatpak/repo/
 
 # User and IDE files
 .vs/

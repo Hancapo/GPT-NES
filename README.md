@@ -17,14 +17,16 @@ The repository currently contains:
 
 ## Requirements
 
-- Windows 10 or newer
 - .NET 10 SDK
+- Windows 10 or newer for the primary desktop workflow
 
 Notes:
 
 - The application project targets `net10.0`.
 - The codebase currently uses preview language features.
-- MIDI and controller support rely on Windows-specific APIs and libraries.
+- Linux publishing is available on a best-effort basis for `linux-x64`, including Steam Deck packaging material under `packaging/steamdeck`.
+- The current non-Windows audio path is only a fallback path intended to keep the app running; it is not yet a proper Linux audio implementation.
+- MIDI output remains Windows-oriented, and native non-Windows controller handling is not yet implemented.
 
 ## Build
 
@@ -52,6 +54,12 @@ You can also start the built executable directly after a Release build:
 
 `NesEmu.App/bin/Release/net10.0/NesEmu.App.exe`
 
+For a Linux x64 self-contained publish:
+
+```powershell
+dotnet publish NesEmu.App/NesEmu.App.csproj -c Release -r linux-x64 --self-contained true -o packaging/steamdeck/publish
+```
+
 ## Test
 
 To run the automated test suite:
@@ -76,6 +84,17 @@ Default keyboard mapping:
 - Arrow keys: D-pad
 
 The application also supports gamepad input and optional MIDI output routing from the APU state.
+
+## Steam Deck
+
+Steam Deck uses `linux-x64` (`x86_64`), not `linux-x86`. The repository includes a Flatpak manifest, desktop entry, AppStream metadata, and helper scripts in `packaging/steamdeck`.
+
+To prepare a Steam Deck build:
+
+1. Publish `NesEmu.App` for `linux-x64`.
+2. Build the Flatpak bundle from `packaging/steamdeck` on a Linux machine with `flatpak-builder`.
+
+See `packaging/steamdeck/README.md` for the packaging flow and current Linux caveats.
 
 ## Repository Intent
 
