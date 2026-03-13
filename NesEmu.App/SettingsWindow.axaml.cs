@@ -13,6 +13,7 @@ public partial class SettingsWindow : ShadWindow
 {
     private enum SettingsSection
     {
+        Video,
         Audio,
         Controls,
         Midi
@@ -21,6 +22,7 @@ public partial class SettingsWindow : ShadWindow
     private readonly EmulatorHost? _emulator;
     private readonly MidiOutputService? _midiOutput;
     private readonly InputStateSource? _inputState;
+    private readonly IVideoOutputSettingsHost? _videoOutput;
     private readonly Action<string>? _statusSink;
 
     private CancellationTokenSource? _audioSettingsApplyCancellation;
@@ -35,25 +37,32 @@ public partial class SettingsWindow : ShadWindow
         InitializeComponent();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
-        SelectSection(SettingsSection.Audio);
+        SelectSection(SettingsSection.Video);
         InitializeOptions();
+        LoadVideoSettings(VideoOutputSettings.CreateDefault());
         LoadAudioSettings(AudioOutputSettings.CreateDefault());
         LoadInputSettings(InputSettings.CreateDefault(), DefaultControllerDevices);
         LoadMidiSettings(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "No MIDI output")]);
         _suppressEvents = false;
     }
 
-    public SettingsWindow(EmulatorHost emulator, MidiOutputService midiOutput, InputStateSource inputState, Action<string> statusSink)
+    public SettingsWindow(
+        EmulatorHost emulator,
+        MidiOutputService midiOutput,
+        InputStateSource inputState,
+        IVideoOutputSettingsHost videoOutput,
+        Action<string> statusSink)
     {
         _emulator = emulator;
         _midiOutput = midiOutput;
         _inputState = inputState;
+        _videoOutput = videoOutput;
         _statusSink = statusSink;
 
         InitializeComponent();
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
-        SelectSection(SettingsSection.Audio);
+        SelectSection(SettingsSection.Video);
         InitializeOptions();
         LoadSettingsFromServices();
         _suppressEvents = false;
@@ -78,6 +87,7 @@ public partial class SettingsWindow : ShadWindow
 
     private void InitializeOptions()
     {
+        VideoRendererComboBox.ItemsSource = VideoRendererCatalog.Options;
         Pulse1ProgramComboBox.ItemsSource = MidiCatalog.Programs;
         Pulse2ProgramComboBox.ItemsSource = MidiCatalog.Programs;
         TriangleProgramComboBox.ItemsSource = MidiCatalog.Programs;
@@ -96,6 +106,7 @@ public partial class SettingsWindow : ShadWindow
 
         try
         {
+            LoadVideoSettings(_videoOutput?.GetVideoSettingsSnapshot() ?? VideoOutputSettings.CreateDefault());
             LoadAudioSettings(_emulator.GetAudioSettingsSnapshot());
             LoadInputSettings(_inputState.GetSettingsSnapshot(), _inputState.GetAvailableControllers());
             LoadMidiSettings(_midiOutput.GetSettingsSnapshot(), _midiOutput.GetDevices());
@@ -111,6 +122,28 @@ public partial class SettingsWindow : ShadWindow
         AudioLatencySlider.Value = settings.OutputLatencyMilliseconds;
         AudioVolumeSlider.Value = settings.MasterVolumePercent;
         UpdateAudioLabels();
+    }
+
+    public void RefreshVideoSettings(VideoOutputSettings settings)
+    {
+        _suppressEvents = true;
+        try
+        {
+            LoadVideoSettings(settings);
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
+    }
+
+    private void LoadVideoSettings(VideoOutputSettings settings)
+    {
+        var selected = VideoRendererCatalog.Options.FirstOrDefault(option => option.Renderer == settings.Renderer)
+            ?? VideoRendererCatalog.Options.First();
+
+        VideoRendererComboBox.SelectedItem = selected;
+        VideoRendererDescriptionText.Text = selected.Description;
     }
 
     private void LoadInputSettings(InputSettings settings, IReadOnlyList<ControllerDeviceInfo> devices)
@@ -168,6 +201,17 @@ public partial class SettingsWindow : ShadWindow
         ScheduleAudioSettingsApply();
     }
 
+    private void VideoSelection_OnChanged(object? sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressEvents)
+        {
+            return;
+        }
+
+        UpdateVideoDescription();
+        ApplyVideoSettingsFromControls();
+    }
+
     private void ControllerDeviceComboBox_OnSelectionChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (_suppressEvents)
@@ -223,6 +267,7 @@ public partial class SettingsWindow : ShadWindow
         _suppressEvents = true;
         try
         {
+            LoadVideoSettings(VideoOutputSettings.CreateDefault());
             LoadAudioSettings(AudioOutputSettings.CreateDefault());
             LoadInputSettings(InputSettings.CreateDefault(), _inputState?.GetAvailableControllers() ?? DefaultControllerDevices);
             LoadMidiSettings(MidiOutputSettings.CreateDefault(), _midiOutput?.GetDevices() ?? [new MidiOutputDeviceInfo(-1, "No MIDI output")]);
@@ -232,6 +277,7 @@ public partial class SettingsWindow : ShadWindow
             _suppressEvents = false;
         }
 
+        ApplyVideoSettingsFromControls();
         ApplyAudioSettingsFromControls();
         ApplyInputSettingsFromControls();
         ApplyMidiSettingsFromControls();
@@ -272,10 +318,11 @@ public partial class SettingsWindow : ShadWindow
 
         var section = tag switch
         {
+            "Video" => SettingsSection.Video,
             "Audio" => SettingsSection.Audio,
             "Controls" => SettingsSection.Controls,
             "MIDI" => SettingsSection.Midi,
-            _ => SettingsSection.Audio
+            _ => SettingsSection.Video
         };
 
         SelectSection(section);
@@ -326,6 +373,17 @@ public partial class SettingsWindow : ShadWindow
 
         AudioLatencyText.Text = $"{ReadAudioLatency(AudioLatencySlider)} ms";
         AudioVolumeText.Text = FormatPercent(AudioVolumeSlider.Value);
+    }
+
+    private void UpdateVideoDescription()
+    {
+        if (VideoRendererDescriptionText is null)
+        {
+            return;
+        }
+
+        var selected = VideoRendererComboBox.SelectedItem as VideoRendererOption;
+        VideoRendererDescriptionText.Text = selected?.Description ?? string.Empty;
     }
 
     private void UpdateMidiLabels()
@@ -496,6 +554,29 @@ public partial class SettingsWindow : ShadWindow
         {
             _suppressEvents = false;
         }
+    }
+
+    private void ApplyVideoSettingsFromControls()
+    {
+        if (_videoOutput is null)
+        {
+            return;
+        }
+
+        var selected = VideoRendererComboBox.SelectedItem as VideoRendererOption;
+        var settings = new VideoOutputSettings
+        {
+            Renderer = selected?.Renderer ?? VideoRendererKind.Software
+        };
+
+        if (_videoOutput.TryApplyVideoSettings(settings, out var error))
+        {
+            _statusSink?.Invoke($"Video renderer updated: {selected?.DisplayName ?? "Software"}.");
+            return;
+        }
+
+        _statusSink?.Invoke(error ?? "Could not apply video renderer.");
+        RefreshVideoSettings(_videoOutput.GetVideoSettingsSnapshot());
     }
 
     private void ScheduleInputSettingsApply()
@@ -697,6 +778,7 @@ public partial class SettingsWindow : ShadWindow
     {
         return _activeSection switch
         {
+            SettingsSection.Video => VideoScrollViewer,
             SettingsSection.Audio => AudioScrollViewer,
             SettingsSection.Controls => ControlsScrollViewer,
             SettingsSection.Midi => MidiScrollViewer,
@@ -707,6 +789,11 @@ public partial class SettingsWindow : ShadWindow
     private void SelectSection(SettingsSection section)
     {
         _activeSection = section;
+
+        if (VideoScrollViewer is not null)
+        {
+            VideoScrollViewer.IsVisible = section == SettingsSection.Video;
+        }
 
         if (AudioScrollViewer is not null)
         {

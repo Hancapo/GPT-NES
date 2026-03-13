@@ -66,10 +66,14 @@
                         Width="196"
                         Background="Transparent">
           <StackPanel Spacing="4">
+            <shadui:SidebarItem x:Name="VideoSectionItem"
+                                Tag="Video"
+                                Content="Video"
+                                IsChecked="True"
+                                Checked="SettingsSectionItem_OnChecked" />
             <shadui:SidebarItem x:Name="AudioSectionItem"
                                 Tag="Audio"
                                 Content="Audio"
-                                IsChecked="True"
                                 Checked="SettingsSectionItem_OnChecked" />
             <shadui:SidebarItem x:Name="ControlsSectionItem"
                                 Tag="Controls"
@@ -87,7 +91,41 @@
               Grid.Column="2"
               Padding="0">
         <Grid>
+          <ScrollViewer x:Name="VideoScrollViewer"
+                        HorizontalScrollBarVisibility="Disabled"
+                        VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="20"
+                        Spacing="16">
+              <StackPanel Spacing="4">
+                <TextBlock FontSize="24"
+                           FontWeight="SemiBold"
+                           Text="Video" />
+                <TextBlock Classes="help"
+                           Text="Renderer selection for the game viewport." />
+              </StackPanel>
+
+              <Border Classes="section">
+                <StackPanel Spacing="16">
+                  <TextBlock Classes="group-title" Text="Video" />
+
+                  <Grid ColumnDefinitions="170,*"
+                        ColumnSpacing="16">
+                    <TextBlock VerticalAlignment="Center" Text="Renderer" />
+                    <ComboBox x:Name="VideoRendererComboBox"
+                              Grid.Column="1"
+                              Classes="setting-combo"
+                              SelectionChanged="VideoSelection_OnChanged" />
+                  </Grid>
+
+                  <TextBlock x:Name="VideoRendererDescriptionText"
+                             Classes="help" />
+                </StackPanel>
+              </Border>
+            </StackPanel>
+          </ScrollViewer>
+
           <ScrollViewer x:Name="AudioScrollViewer"
+                        IsVisible="False"
                         HorizontalScrollBarVisibility="Disabled"
                         VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="20"

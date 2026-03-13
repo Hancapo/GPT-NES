@@ -14,7 +14,7 @@ using ShadWindow = ShadUI.Window;
 
 namespace NesEmu.App;
 
-public partial class MainWindow : ShadWindow
+public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 {
     private readonly InputStateSource _inputState = new();
     private readonly MidiOutputService _midiOutput = new();
@@ -22,8 +22,10 @@ public partial class MainWindow : ShadWindow
     private readonly WriteableBitmap _bitmap;
     private readonly object _frameSync = new();
     private readonly uint[] _latestFrame = new uint[NesVideoConstants.PixelsPerFrame];
+    private readonly uint[] _openGlUploadScratch = new uint[NesVideoConstants.PixelsPerFrame];
     private readonly int[] _pixelScratch = new int[NesVideoConstants.PixelsPerFrame];
     private readonly Stopwatch _fpsStopwatch = Stopwatch.StartNew();
+    private VideoOutputSettings _videoSettings = VideoOutputSettings.CreateDefault();
 
     private SettingsWindow? _settingsWindow;
     private long _frameEpoch;
@@ -44,6 +46,7 @@ public partial class MainWindow : ShadWindow
             AlphaFormat.Opaque);
 
         GameImage.Source = _bitmap;
+        OpenGlGameView.RendererFailed += OpenGlGameView_OnRendererFailed;
         _emulator = new EmulatorHost(_inputState.GetCombinedState, OnFrameReady, _midiOutput);
 
         AddHandler(KeyDownEvent, PreviewKeyDownHandler, RoutingStrategies.Tunnel, handledEventsToo: true);
@@ -56,6 +59,7 @@ public partial class MainWindow : ShadWindow
 
         SetTransportEnabled(false);
         ClearViewport();
+        ApplyVideoRenderer();
         SetStatus("Ready.");
         UpdateUiState();
     }
@@ -63,6 +67,7 @@ public partial class MainWindow : ShadWindow
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
         _settingsWindow?.Close();
+        OpenGlGameView.RendererFailed -= OpenGlGameView_OnRendererFailed;
         _emulator.Dispose();
         _midiOutput.Dispose();
     }
@@ -195,7 +200,7 @@ public partial class MainWindow : ShadWindow
 
         _inputState.Clear();
 
-        _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, SetStatus);
+        _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
         _settingsWindow.Closed += SettingsWindow_OnClosed;
         _settingsWindow.Show(this);
     }
@@ -259,6 +264,8 @@ public partial class MainWindow : ShadWindow
 
     private void UploadPendingFrame(long epoch)
     {
+        var renderWithOpenGl = _videoSettings.Renderer == VideoRendererKind.OpenGl;
+
         lock (_frameSync)
         {
             if (!_frameDirty || epoch != Interlocked.Read(ref _frameEpoch) || _latestFrameEpoch != epoch)
@@ -267,17 +274,28 @@ public partial class MainWindow : ShadWindow
                 return;
             }
 
-            for (var i = 0; i < _latestFrame.Length; i++)
+            if (renderWithOpenGl)
             {
-                _pixelScratch[i] = unchecked((int)_latestFrame[i]);
+                Array.Copy(_latestFrame, _openGlUploadScratch, _latestFrame.Length);
+            }
+            else
+            {
+                for (var i = 0; i < _latestFrame.Length; i++)
+                {
+                    _pixelScratch[i] = unchecked((int)_latestFrame[i]);
+                }
             }
 
             _frameDirty = false;
         }
 
-        using (var framebuffer = _bitmap.Lock())
+        if (renderWithOpenGl)
         {
-            Marshal.Copy(_pixelScratch, 0, framebuffer.Address, _pixelScratch.Length);
+            OpenGlGameView.SubmitFrame(_openGlUploadScratch);
+        }
+        else
+        {
+            UploadSoftwareFrameFromScratch();
         }
 
         _fpsFrameCount++;
@@ -290,7 +308,6 @@ public partial class MainWindow : ShadWindow
             FpsText.Text = $"{_lastFps:0.0} FPS";
         }
 
-        GameImage.InvalidateVisual();
         GameViewport.InvalidateVisual();
         OverlayPanel.IsVisible = false;
 
@@ -354,6 +371,16 @@ public partial class MainWindow : ShadWindow
         Title = hasRom ? $"NesEmu - {Path.GetFileName(_emulator.LoadedRomPath)}" : "NesEmu";
     }
 
+    public VideoOutputSettings GetVideoSettingsSnapshot() => _videoSettings.Clone();
+
+    public bool TryApplyVideoSettings(VideoOutputSettings settings, out string? error)
+    {
+        _videoSettings = settings.Clone();
+        ApplyVideoRenderer();
+        error = null;
+        return true;
+    }
+
     private void ShowOverlay(string title, string body, bool showOpenButton)
     {
         OverlayTitleText.Text = title;
@@ -369,6 +396,7 @@ public partial class MainWindow : ShadWindow
         lock (_frameSync)
         {
             Array.Clear(_latestFrame);
+            Array.Clear(_openGlUploadScratch);
             Array.Clear(_pixelScratch);
             _frameDirty = false;
             _latestFrameEpoch = epoch;
@@ -376,9 +404,8 @@ public partial class MainWindow : ShadWindow
 
         Interlocked.Exchange(ref _uiFrameScheduled, 0);
 
-        using var framebuffer = _bitmap.Lock();
-        Marshal.Copy(_pixelScratch, 0, framebuffer.Address, _pixelScratch.Length);
-        GameImage.InvalidateVisual();
+        UploadSoftwareFrameFromScratch();
+        OpenGlGameView.ClearFrame();
         GameViewport.InvalidateVisual();
     }
 
@@ -400,6 +427,60 @@ public partial class MainWindow : ShadWindow
     private void SetStatus(string message)
     {
         StatusText.Text = message;
+    }
+
+    private void ApplyVideoRenderer()
+    {
+        var useOpenGl = _videoSettings.Renderer == VideoRendererKind.OpenGl;
+        GameImage.IsVisible = !useOpenGl;
+        OpenGlGameView.IsVisible = useOpenGl;
+        RendererText.Text = useOpenGl ? "OpenGL" : "Software";
+
+        if (useOpenGl)
+        {
+            lock (_frameSync)
+            {
+                Array.Copy(_latestFrame, _openGlUploadScratch, _latestFrame.Length);
+            }
+
+            OpenGlGameView.SubmitFrame(_openGlUploadScratch);
+        }
+        else
+        {
+            CopyLatestFrameToSoftwareScratch();
+            UploadSoftwareFrameFromScratch();
+        }
+    }
+
+    private void CopyLatestFrameToSoftwareScratch()
+    {
+        lock (_frameSync)
+        {
+            for (var i = 0; i < _latestFrame.Length; i++)
+            {
+                _pixelScratch[i] = unchecked((int)_latestFrame[i]);
+            }
+        }
+    }
+
+    private void UploadSoftwareFrameFromScratch()
+    {
+        using var framebuffer = _bitmap.Lock();
+        Marshal.Copy(_pixelScratch, 0, framebuffer.Address, _pixelScratch.Length);
+        GameImage.InvalidateVisual();
+    }
+
+    private void OpenGlGameView_OnRendererFailed(string message)
+    {
+        if (_videoSettings.Renderer != VideoRendererKind.OpenGl)
+        {
+            return;
+        }
+
+        _videoSettings = VideoOutputSettings.CreateDefault();
+        ApplyVideoRenderer();
+        _settingsWindow?.RefreshVideoSettings(_videoSettings);
+        SetStatus($"{message} Falling back to software rendering.");
     }
 
     private void CaptureGameInput()
