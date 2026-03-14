@@ -1,0 +1,177 @@
+using NesEmu.Core;
+using NesEmu.Core.Cartridge;
+
+namespace NesEmu.Tests;
+
+public sealed class PpuAccuracyTests
+{
+    [Fact]
+    public void PaletteRamReadsUseSixBitStorageAndOpenBusUpperBits()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+
+            SetPpuAddress(ppu, 0x3F1F);
+            ppu.CpuWrite(0x2007, 0xFF);
+
+            SetPpuAddress(ppu, 0x3F1F);
+            ppu.CpuWrite(0x2002, 0x00);
+            Assert.Equal(0x3F, ppu.CpuRead(0x2007));
+
+            SetPpuAddress(ppu, 0x3F1F);
+            ppu.CpuWrite(0x2002, 0xFF);
+            Assert.Equal(0xFF, ppu.CpuRead(0x2007));
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void ReadingStatusAtVBlankStartSuppressesFlagAndNmi()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            ppu.CpuWrite(0x2000, 0x80);
+
+            AdvancePpuClocks(ppu, 341 + (241 * 341) + 1);
+
+            var status = ppu.CpuRead(0x2002);
+            Assert.Equal(0x00, status & 0x80);
+
+            for (var i = 0; i < 4; i++)
+            {
+                AdvancePpuClocks(ppu, 3);
+                Assert.False(ppu.ConsumeNmi());
+            }
+
+            AdvancePpuClocks(ppu, 24);
+            Assert.Equal(0x00, ppu.CpuRead(0x2002) & 0x80);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void SpriteZeroHitUsesTheCorrectBackgroundPixelAlignment()
+    {
+        var romPath = CreateAlignmentTestRom();
+        try
+        {
+            var missPpu = new Ppu2C02(CartridgeImage.Load(romPath));
+            SetPpuAddress(missPpu, 0x2002);
+            missPpu.CpuWrite(0x2007, 0x01);
+            ResetScroll(missPpu);
+            missPpu.Oam[0] = 0x02;
+            missPpu.Oam[1] = 0x00;
+            missPpu.Oam[2] = 0x00;
+            missPpu.Oam[3] = 0x13;
+            missPpu.CpuWrite(0x2001, 0x18);
+
+            AdvancePpuClocks(missPpu, 341 * 10);
+
+            Assert.Equal(0x00, missPpu.CpuRead(0x2002) & 0x40);
+
+            var hitPpu = new Ppu2C02(CartridgeImage.Load(romPath));
+            SetPpuAddress(hitPpu, 0x2002);
+            hitPpu.CpuWrite(0x2007, 0x01);
+            ResetScroll(hitPpu);
+            hitPpu.Oam[0] = 0x02;
+            hitPpu.Oam[1] = 0x00;
+            hitPpu.Oam[2] = 0x00;
+            hitPpu.Oam[3] = 0x14;
+            hitPpu.CpuWrite(0x2001, 0x18);
+
+            AdvancePpuClocks(hitPpu, 341 * 10);
+
+            Assert.Equal(0x40, hitPpu.CpuRead(0x2002) & 0x40);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    private static void AdvancePpuClocks(Ppu2C02 ppu, int count)
+    {
+        for (var i = 0; i < count; i++)
+        {
+            ppu.Clock();
+        }
+    }
+
+    private static void SetPpuAddress(Ppu2C02 ppu, ushort address)
+    {
+        ppu.CpuWrite(0x2006, (byte)(address >> 8));
+        ppu.CpuWrite(0x2006, (byte)address);
+    }
+
+    private static void ResetScroll(Ppu2C02 ppu)
+    {
+        SetPpuAddress(ppu, 0x2000);
+        ppu.CpuWrite(0x2005, 0x00);
+        ppu.CpuWrite(0x2005, 0x00);
+    }
+
+    private static string CreateTestRom()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nesemu-ppu-accuracy-{Guid.NewGuid():N}.nes");
+        using var stream = File.Create(path);
+
+        Span<byte> header = stackalloc byte[16];
+        header[0] = (byte)'N';
+        header[1] = (byte)'E';
+        header[2] = (byte)'S';
+        header[3] = 0x1A;
+        header[4] = 1;
+        header[5] = 1;
+        stream.Write(header);
+
+        stream.Write(new byte[0x4000]);
+
+        var chr = new byte[0x2000];
+        chr[0] = 0x3C;
+        stream.Write(chr);
+
+        return path;
+    }
+
+    private static string CreateAlignmentTestRom()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nesemu-ppu-alignment-{Guid.NewGuid():N}.nes");
+        using var stream = File.Create(path);
+
+        Span<byte> header = stackalloc byte[16];
+        header[0] = (byte)'N';
+        header[1] = (byte)'E';
+        header[2] = (byte)'S';
+        header[3] = 0x1A;
+        header[4] = 1;
+        header[5] = 1;
+        stream.Write(header);
+
+        stream.Write(new byte[0x4000]);
+
+        var chr = new byte[0x2000];
+        chr[0x00] = 0x80;
+        chr[0x08] = 0x80;
+        for (var row = 0; row < 8; row++)
+        {
+            chr[0x10 + row] = 0xFF;
+            chr[0x18 + row] = 0xFF;
+        }
+
+        chr[0x10 + 3] = 0xEF;
+        chr[0x18 + 3] = 0xEF;
+        stream.Write(chr);
+
+        return path;
+    }
+}

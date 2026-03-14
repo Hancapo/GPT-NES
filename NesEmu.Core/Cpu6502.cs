@@ -470,8 +470,8 @@ public sealed partial class Cpu6502
 
     private int ExecuteFlag(CpuStatusFlags flag, bool set)
     {
-        PollInterrupts();
         DummyRead(ProgramCounter);
+        PollInterrupts();
         SetFlag(flag, set);
         return 2;
     }
@@ -480,8 +480,8 @@ public sealed partial class Cpu6502
     {
         if (cycles == 2)
         {
-            PollInterrupts();
             DummyRead(ProgramCounter);
+            PollInterrupts();
         }
 
         return cycles;
@@ -493,17 +493,17 @@ public sealed partial class Cpu6502
     private int ExecuteLoadX(byte value, int cycles) { X = value; SetZeroAndNegative(X); return cycles; }
     private int ExecuteLoadY(byte value, int cycles) { Y = value; SetZeroAndNegative(Y); return cycles; }
 
-    private int ExecuteTransferToA(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Accumulator = source; SetZeroAndNegative(Accumulator); return cycles; }
-    private int ExecuteTransferToX(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X = source; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteTransferToY(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y = source; SetZeroAndNegative(Y); return cycles; }
-    private int ExecuteTransferToStackPointer(byte source, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); StackPointer = source; return cycles; }
+    private int ExecuteTransferToA(byte source, int cycles) { DummyRead(ProgramCounter); PollInterrupts(); Accumulator = source; SetZeroAndNegative(Accumulator); return cycles; }
+    private int ExecuteTransferToX(byte source, int cycles) { DummyRead(ProgramCounter); PollInterrupts(); X = source; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteTransferToY(byte source, int cycles) { DummyRead(ProgramCounter); PollInterrupts(); Y = source; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteTransferToStackPointer(byte source, int cycles) { DummyRead(ProgramCounter); PollInterrupts(); StackPointer = source; return cycles; }
     private int ExecuteCompare(byte register, byte value, int cycles) { CompareValues(register, value); return cycles; }
-    private int ExecuteIncrementX(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X++; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteIncrementY(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y++; SetZeroAndNegative(Y); return cycles; }
-    private int ExecuteDecrementX(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); X--; SetZeroAndNegative(X); return cycles; }
-    private int ExecuteDecrementY(int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Y--; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteIncrementX(int cycles) { DummyRead(ProgramCounter); PollInterrupts(); X++; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteIncrementY(int cycles) { DummyRead(ProgramCounter); PollInterrupts(); Y++; SetZeroAndNegative(Y); return cycles; }
+    private int ExecuteDecrementX(int cycles) { DummyRead(ProgramCounter); PollInterrupts(); X--; SetZeroAndNegative(X); return cycles; }
+    private int ExecuteDecrementY(int cycles) { DummyRead(ProgramCounter); PollInterrupts(); Y--; SetZeroAndNegative(Y); return cycles; }
     private int ExecuteModify(ushort address, Func<byte, byte> operation, int cycles) { ReadModifyWrite(address, operation); return cycles; }
-    private int ExecuteAccumulator(Func<byte, byte> operation, int cycles) { PollInterrupts(); DummyRead(ProgramCounter); Accumulator = operation(Accumulator); return cycles; }
+    private int ExecuteAccumulator(Func<byte, byte> operation, int cycles) { DummyRead(ProgramCounter); PollInterrupts(); Accumulator = operation(Accumulator); return cycles; }
 
     private byte ShiftLeft(byte value) { SetFlag(CpuStatusFlags.Carry, (value & 0x80) != 0); value <<= 1; SetZeroAndNegative(value); return value; }
     private byte ShiftRight(byte value) { SetFlag(CpuStatusFlags.Carry, (value & 0x01) != 0); value >>= 1; SetZeroAndNegative(value); return value; }
