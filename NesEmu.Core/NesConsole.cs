@@ -21,6 +21,8 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 
     private long _cpuCycles;
     private int _dmaStallCycles;
+    private bool _dmaRequestPending;
+    private byte _dmaPage;
     private byte _cpuOpenBus;
     private bool _lastCpuBusWasRead;
     private ushort _lastCpuBusAddress;
@@ -48,6 +50,8 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
         _cpu.Reset();
         _cpuCycles = 0;
         _dmaStallCycles = 0;
+        _dmaRequestPending = false;
+        _dmaPage = 0;
         _audioResampler.Reset();
         _cpuOpenBus = 0;
         _lastCpuBusWasRead = false;
@@ -99,6 +103,11 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 
     public void Step()
     {
+        if (_dmaRequestPending && _dmaStallCycles == 0)
+        {
+            BeginOamDma();
+        }
+
         if (_dmaStallCycles > 0)
         {
             TickHardware();
@@ -199,8 +208,14 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 
     private void StartOamDma(byte page)
     {
+        _dmaPage = page;
+        _dmaRequestPending = true;
+    }
+
+    private void BeginOamDma()
+    {
         Span<byte> buffer = stackalloc byte[256];
-        var baseAddress = (ushort)(page << 8);
+        var baseAddress = (ushort)(_dmaPage << 8);
         for (var i = 0; i < 256; i++)
         {
             buffer[i] = CpuRead((ushort)(baseAddress + i));
@@ -208,6 +223,7 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
 
         _ppu.WriteOamDma(buffer);
         _dmaStallCycles = 513 + (int)(_cpuCycles & 0x01);
+        _dmaRequestPending = false;
     }
 
     private void TickHardware()
@@ -227,15 +243,11 @@ public sealed class NesConsole : ICpuBus, ICpuCycleObserver, IDisposable
             }
         }
 
+        var nmiLineLow = _ppu.IsNmiLineLowOnUpcomingCpuSample;
+        _ppu.Clock();
+        _cpu.SetNmiLine(nmiLineLow || _ppu.IsNmiLineLow);
         _ppu.Clock();
         _ppu.Clock();
-        _ppu.Clock();
-
-        if (_ppu.ConsumeNmi())
-        {
-            _cpu.RequestNmi();
-        }
-
         _cpu.SetIrqLine(_apu.IrqPending || _cartridge.IrqPending);
     }
 

@@ -60,6 +60,33 @@ public sealed class PpuAccuracyTests
     }
 
     [Fact]
+    public void ReadingStatusOneTickBeforeVBlankSuppressesTheUpcomingNmiSample()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            ppu.CpuWrite(0x2000, 0x80);
+
+            AdvancePpuClocks(ppu, 341 + (241 * 341));
+
+            Assert.True(ppu.IsNmiLineLowOnUpcomingCpuSample);
+
+            var status = ppu.CpuRead(0x2002);
+            Assert.Equal(0x00, status & 0x80);
+            Assert.False(ppu.IsNmiLineLowOnUpcomingCpuSample);
+
+            AdvancePpuClocks(ppu, 6);
+            Assert.False(ppu.ConsumeNmi());
+            Assert.Equal(0x00, ppu.CpuRead(0x2002) & 0x80);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
     public void SpriteZeroHitUsesTheCorrectBackgroundPixelAlignment()
     {
         var romPath = CreateAlignmentTestRom();
@@ -99,12 +126,146 @@ public sealed class PpuAccuracyTests
         }
     }
 
+    [Fact]
+    public void MisalignedOamCanTreatTheFirstEvaluatedSpriteAsSpriteZero()
+    {
+        var romPath = CreateAlignmentTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            Array.Fill(ppu.Oam, (byte)0xFF);
+
+            SetPpuAddress(ppu, 0x2002);
+            ppu.CpuWrite(0x2007, 0x01);
+            ResetScroll(ppu);
+
+            ppu.Oam[0x81] = 0x00;
+            ppu.Oam[0x82] = 0x00;
+            ppu.Oam[0x83] = 0x00;
+            ppu.Oam[0x84] = 0x14;
+
+            ppu.CpuWrite(0x2001, 0x18);
+            AdvancePpuClocks(ppu, 341);
+            ppu.CpuWrite(0x2003, 0x81);
+            AdvancePpuClocks(ppu, 341 * 5);
+
+            Assert.Equal(0x40, ppu.CpuRead(0x2002) & 0x40);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void MisalignedOamOffsetTwoCanStillTriggerSpriteOverflowAfterRealignment()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            Array.Fill(ppu.Oam, (byte)0xFF);
+
+            byte[] misalignedOffsetTwo =
+            {
+                0xFF, 0xFF,
+                0x00, 0xE3, 0x10, 0x00,
+                0x00, 0xE3, 0x20, 0x00,
+                0x00, 0xE3, 0x30, 0x00,
+                0x00, 0xE3, 0x40, 0x00,
+                0x00, 0xE3, 0x50, 0x00,
+                0x00, 0xE3, 0x60, 0x00,
+                0x00, 0xE3, 0x70, 0x00,
+                0x00, 0xE3, 0x00, 0x80,
+                0x00
+            };
+
+            Array.Copy(misalignedOffsetTwo, ppu.Oam, misalignedOffsetTwo.Length);
+
+            ppu.CpuWrite(0x2001, 0x18);
+            AdvancePpuClocks(ppu, 341);
+            ppu.CpuWrite(0x2003, 0x02);
+            AdvancePpuClocks(ppu, 341 * 3);
+
+            Assert.Equal(0x20, ppu.CpuRead(0x2002) & 0x20);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void EightSpritesOnOneScanlineDoNotSetOverflow()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            FillOam(ppu, 0xFF);
+            for (var i = 0; i < 8; i++)
+            {
+                var baseIndex = i * 4;
+                ppu.Oam[baseIndex] = 0x00;
+                ppu.Oam[baseIndex + 1] = 0x00;
+                ppu.Oam[baseIndex + 2] = 0x00;
+                ppu.Oam[baseIndex + 3] = (byte)(i * 8);
+            }
+
+            ppu.CpuWrite(0x2001, 0x18);
+            AdvancePpuClocks(ppu, 341 * 4);
+
+            Assert.Equal(0x00, ppu.CpuRead(0x2002) & 0x20);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void SpriteOverflowClearsOnTheNextFrameWhenOnlyEightSpritesRemain()
+    {
+        var romPath = CreateTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+            FillOam(ppu, 0xFF);
+            for (var i = 0; i < 9; i++)
+            {
+                var baseIndex = i * 4;
+                ppu.Oam[baseIndex] = 0x00;
+                ppu.Oam[baseIndex + 1] = 0x00;
+                ppu.Oam[baseIndex + 2] = 0x00;
+                ppu.Oam[baseIndex + 3] = (byte)(i * 8);
+            }
+
+            ppu.CpuWrite(0x2001, 0x18);
+            AdvancePpuClocks(ppu, 341 * 4);
+            Assert.Equal(0x20, ppu.CpuRead(0x2002) & 0x20);
+
+            ppu.Oam[0] = 0xFF;
+            AdvancePpuClocks(ppu, 341 * 262);
+
+            Assert.Equal(0x00, ppu.CpuRead(0x2002) & 0x20);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
     private static void AdvancePpuClocks(Ppu2C02 ppu, int count)
     {
         for (var i = 0; i < count; i++)
         {
             ppu.Clock();
         }
+    }
+
+    private static void FillOam(Ppu2C02 ppu, byte value)
+    {
+        Array.Fill(ppu.Oam, value);
     }
 
     private static void SetPpuAddress(Ppu2C02 ppu, ushort address)

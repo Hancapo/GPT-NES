@@ -358,6 +358,7 @@ public sealed partial class Cpu6502
     private void DummyReadStack() => DummyRead((ushort)(0x0100 | StackPointer));
     private byte Read(ushort address)
     {
+        BeginCpuCycle();
         var value = _bus.CpuRead(address);
         _cycleObserver?.OnCpuCycle();
         return value;
@@ -374,6 +375,7 @@ public sealed partial class Cpu6502
 
     private void Write(ushort address, byte value)
     {
+        BeginCpuCycle();
         _bus.CpuWrite(address, value);
         _cycleObserver?.OnCpuCycle();
     }

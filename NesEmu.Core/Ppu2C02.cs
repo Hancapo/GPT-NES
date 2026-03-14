@@ -5,6 +5,7 @@ namespace NesEmu.Core;
 public sealed class Ppu2C02
 {
     private const int OpenBusDecayCycles = 341 * 262 * 110;
+    private const int MaskWriteDelay = 2;
 
     private readonly CartridgeImage _cartridge;
     private readonly byte[] _vram = new byte[0x1000];
@@ -16,6 +17,7 @@ public sealed class Ppu2C02
 
     private byte _control;
     private byte _mask;
+    private byte _queuedMask;
     private byte _status;
     private byte _oamAddress;
     private byte _openBus;
@@ -44,10 +46,13 @@ public sealed class Ppu2C02
     private int _nextSpriteCount;
     private bool _frameCompleted;
     private int _openBusDecayCounter;
+    private int _queuedMaskDelay;
     private bool _nmiEdgePending;
     private bool _nmiOutput;
+    private bool _oamCorruptionPending;
     private bool _suppressVBlankForFrame;
     private bool _forceSpriteXToZeroOnNextScanline;
+    private byte _oamCorruptionRow;
 
     public Ppu2C02(CartridgeImage cartridge)
     {
@@ -68,6 +73,7 @@ public sealed class Ppu2C02
         _openBus = 0;
         _readBuffer = 0;
         _writeToggle = false;
+        _queuedMask = 0;
         _vramAddress = 0;
         _tempVramAddress = 0;
         _fineX = 0;
@@ -82,10 +88,13 @@ public sealed class Ppu2C02
         _nextSpriteCount = 0;
         _frameCompleted = false;
         _openBusDecayCounter = 0;
+        _queuedMaskDelay = 0;
         _nmiEdgePending = false;
         _nmiOutput = false;
+        _oamCorruptionPending = false;
         _suppressVBlankForFrame = false;
         _forceSpriteXToZeroOnNextScanline = false;
+        _oamCorruptionRow = 0;
         Array.Clear(_oam);
         Array.Clear(_vram);
         Array.Clear(_paletteRam);
@@ -106,6 +115,15 @@ public sealed class Ppu2C02
         _nmiEdgePending = false;
         return value;
     }
+
+    public bool IsNmiLineLow => _nmiOutput;
+
+    public bool IsNmiLineLowOnUpcomingCpuSample =>
+        ((_control & 0x80) != 0) &&
+        !_suppressVBlankForFrame &&
+        !_nmiOutput &&
+        _scanline == 241 &&
+        _cycle == 0;
 
     public byte CpuRead(ushort address)
     {
@@ -131,7 +149,7 @@ public sealed class Ppu2C02
                 WriteControl(value);
                 break;
             case 0x2001:
-                _mask = value;
+                QueueMaskWrite(value);
                 break;
             case 0x2003:
                 _oamAddress = value;
@@ -162,6 +180,8 @@ public sealed class Ppu2C02
     public void Clock()
     {
         DecayOpenBus();
+        UpdateQueuedMask();
+        ApplyPendingOamCorruption();
 
         var renderingEnabled = IsRenderingEnabled;
         var visibleScanline = _scanline is >= 0 and < 240;
@@ -178,6 +198,7 @@ public sealed class Ppu2C02
             if (_cycle is >= 1 and <= 256 || _cycle is >= 321 and <= 336)
             {
                 ShiftBackgroundRegisters();
+
                 if (visibleScanline && _cycle <= 256)
                 {
                     RenderPixel();
@@ -262,7 +283,7 @@ public sealed class Ppu2C02
             _cycle = 0;
             _scanline = 0;
             _oddFrame = false;
-            PromoteNextSprites();
+            PromoteNextSprites(preserveNextSprites: !IsRenderingEnabled);
             _frameCompleted = true;
             return;
         }
@@ -276,14 +297,14 @@ public sealed class Ppu2C02
 
             if (_scanline is >= 0 and < 240)
             {
-                PromoteNextSprites();
+                PromoteNextSprites(preserveNextSprites: !IsRenderingEnabled);
             }
 
             if (_scanline > 261)
             {
                 _scanline = 0;
                 _oddFrame = !_oddFrame;
-                PromoteNextSprites();
+                PromoteNextSprites(preserveNextSprites: !IsRenderingEnabled);
                 _frameCompleted = true;
             }
         }
@@ -291,10 +312,15 @@ public sealed class Ppu2C02
 
     private byte ReadStatus()
     {
+        var suppressOneTickEarly = _scanline == 241 && _cycle == 0;
         var suppressVBlankStart = _scanline == 241 && _cycle == 1;
         var value = (byte)((_openBus & 0x1F) | (_status & 0xE0));
 
-        if (suppressVBlankStart)
+        if (suppressOneTickEarly)
+        {
+            _suppressVBlankForFrame = true;
+        }
+        else if (suppressVBlankStart)
         {
             value &= 0x7F;
             _suppressVBlankForFrame = true;
@@ -383,6 +409,71 @@ public sealed class Ppu2C02
     {
         WritePpu(_vramAddress, value);
         IncrementDataAddressForAccess();
+    }
+
+    private void QueueMaskWrite(byte value)
+    {
+        _queuedMask = value;
+        _queuedMaskDelay = MaskWriteDelay;
+    }
+
+    private void UpdateQueuedMask()
+    {
+        if (_queuedMaskDelay <= 0)
+        {
+            return;
+        }
+
+        _queuedMaskDelay--;
+        if (_queuedMaskDelay == 0)
+        {
+            ApplyMask(_queuedMask);
+        }
+    }
+
+    private void ApplyMask(byte value)
+    {
+        var wasRenderingEnabled = IsRenderingEnabled;
+        _mask = value;
+
+        if (wasRenderingEnabled && !IsRenderingEnabled)
+        {
+            ArmOamCorruption();
+        }
+    }
+
+    private void ArmOamCorruption()
+    {
+        if (_scanline is not 261 and (< 0 or >= 240))
+        {
+            return;
+        }
+
+        if (_cycle is < 0 or > 63)
+        {
+            return;
+        }
+
+        _oamCorruptionPending = true;
+        _oamCorruptionRow = (byte)(_cycle / 2);
+    }
+
+    private void ApplyPendingOamCorruption()
+    {
+        if (!_oamCorruptionPending ||
+            !IsRenderingEnabled ||
+            (_scanline is < 0 or >= 240) && _scanline != 261)
+        {
+            return;
+        }
+
+        var destination = _oamCorruptionRow * 8;
+        if (destination < _oam.Length)
+        {
+            Array.Copy(_oam, 0, _oam, destination, Math.Min(8, _oam.Length - destination));
+        }
+
+        _oamCorruptionPending = false;
     }
 
     private void IncrementDataAddress()
@@ -494,13 +585,10 @@ public sealed class Ppu2C02
 
     private void ShiftBackgroundRegisters()
     {
-        if (IsRenderingEnabled)
-        {
-            _backgroundPatternLow <<= 1;
-            _backgroundPatternHigh = (ushort)((_backgroundPatternHigh << 1) | 0x0001);
-            _backgroundAttributeLow <<= 1;
-            _backgroundAttributeHigh = (ushort)((_backgroundAttributeHigh << 1) | 0x0001);
-        }
+        _backgroundPatternLow <<= 1;
+        _backgroundPatternHigh = (ushort)((_backgroundPatternHigh << 1) | 0x0001);
+        _backgroundAttributeLow <<= 1;
+        _backgroundAttributeHigh = (ushort)((_backgroundAttributeHigh << 1) | 0x0001);
     }
 
     private void StepSpriteShifters()
@@ -596,54 +684,108 @@ public sealed class Ppu2C02
         _nextSpriteCount = 0;
         var spriteHeight = SpriteHeight;
         var overflow = false;
-        var spriteZeroIndex = (_oamAddress & 0x03) == 0 ? (_oamAddress >> 2) & 0x3F : -1;
+        var address = _oamAddress;
+        var copyByteIndex = 0;
+        var firstCandidateCanBeSpriteZero = true;
+        var candidateIsSpriteZero = false;
+        Span<byte> candidate = stackalloc byte[4];
 
-        for (var i = 0; i < 64; i++)
+        for (var step = 0; step < 96; step++)
         {
-            var spriteIndex = (spriteZeroIndex + 64 + i) & 0x3F;
-            if (spriteZeroIndex < 0)
-            {
-                spriteIndex = i;
-            }
+            var value = _oam[address];
 
-            var spriteBase = spriteIndex * 4;
-            var spriteY = _oam[spriteBase];
-            var row = targetScanline - spriteY - 1;
-            if (row < 0 || row >= spriteHeight)
+            if (_nextSpriteCount < 8)
             {
+                if (copyByteIndex == 0)
+                {
+                    candidate[0] = value;
+                    candidateIsSpriteZero = firstCandidateCanBeSpriteZero;
+                    firstCandidateCanBeSpriteZero = false;
+
+                    if (!IsSpriteEvaluationValueInRange(value, targetScanline, spriteHeight))
+                    {
+                        address = (byte)((address + 4) & 0xFC);
+                        continue;
+                    }
+
+                    copyByteIndex = 1;
+                    address++;
+                    continue;
+                }
+
+                candidate[copyByteIndex] = value;
+                address++;
+
+                if (copyByteIndex < 3)
+                {
+                    copyByteIndex++;
+                    continue;
+                }
+
+                QueueNextSprite(candidate, candidateIsSpriteZero, targetScanline);
+                address = IsSpriteEvaluationValueInRange(value, targetScanline, spriteHeight)
+                    ? address
+                    : (byte)(address & 0xFC);
+                copyByteIndex = 0;
                 continue;
             }
 
-            if (_nextSpriteCount == 8)
+            if (IsSpriteEvaluationValueInRange(value, targetScanline, spriteHeight))
             {
                 overflow = true;
                 break;
             }
 
-            var tileIndex = _oam[spriteBase + 1];
-            var attributes = _oam[spriteBase + 2];
-            var x = _oam[spriteBase + 3];
-
-            _nextSprites[_nextSpriteCount] = new SpriteState
+            address = AdvanceOverflowSearchAddress(address, out var wrapped);
+            if (wrapped)
             {
-                TileIndex = tileIndex,
-                Attributes = attributes,
-                XCounter = x,
-                Row = (byte)row,
-                IsSpriteZero = spriteIndex == spriteZeroIndex
-            };
-
-            _nextSpriteCount++;
+                break;
+            }
         }
 
         if (overflow)
         {
             _status |= 0x20;
         }
-        else
+    }
+
+    private void QueueNextSprite(ReadOnlySpan<byte> candidate, bool isSpriteZero, int targetScanline)
+    {
+        if (_nextSpriteCount >= 8)
         {
-            _status &= unchecked((byte)~0x20);
+            return;
         }
+
+        var row = targetScanline - candidate[0] - 1;
+        if (row < 0 || row >= SpriteHeight)
+        {
+            return;
+        }
+
+        _nextSprites[_nextSpriteCount] = new SpriteState
+        {
+            YPosition = candidate[0],
+            TileIndex = candidate[1],
+            Attributes = candidate[2],
+            XCounter = candidate[3],
+            IsSpriteZero = isSpriteZero
+        };
+
+        _nextSpriteCount++;
+    }
+
+    private static bool IsSpriteEvaluationValueInRange(byte value, int targetScanline, int spriteHeight)
+    {
+        var row = targetScanline - value - 1;
+        return row >= 0 && row < spriteHeight;
+    }
+
+    private static byte AdvanceOverflowSearchAddress(byte address, out bool wrapped)
+    {
+        var n = ((address >> 2) + 1) & 0x3F;
+        var m = ((address & 0x03) + 1) & 0x03;
+        wrapped = n == 0;
+        return (byte)((n << 2) | m);
     }
 
     private void LoadNextSpritePatterns()
@@ -651,13 +793,21 @@ public sealed class Ppu2C02
         for (var i = 0; i < _nextSpriteCount; i++)
         {
             ref var sprite = ref _nextSprites[i];
-            var (low, high) = FetchSpritePattern(sprite.TileIndex, sprite.Attributes, sprite.Row);
+            var row = (_scanline & 0xFF) - sprite.YPosition;
+            if (row < 0 || row >= SpriteHeight)
+            {
+                sprite.PatternLow = 0;
+                sprite.PatternHigh = 0;
+                continue;
+            }
+
+            var (low, high) = FetchSpritePattern(sprite.TileIndex, sprite.Attributes, row);
             sprite.PatternLow = low;
             sprite.PatternHigh = high;
         }
     }
 
-    private void PromoteNextSprites()
+    private void PromoteNextSprites(bool preserveNextSprites = false)
     {
         Array.Clear(_sprites);
         Array.Copy(_nextSprites, _sprites, _nextSprites.Length);
@@ -673,8 +823,11 @@ public sealed class Ppu2C02
             _forceSpriteXToZeroOnNextScanline = false;
         }
 
-        _nextSpriteCount = 0;
-        Array.Clear(_nextSprites);
+        if (!preserveNextSprites)
+        {
+            _nextSpriteCount = 0;
+            Array.Clear(_nextSprites);
+        }
     }
 
     private (byte Low, byte High) FetchSpritePattern(byte tileIndex, byte attributes, int row)
@@ -885,12 +1038,12 @@ public sealed class Ppu2C02
 
     private struct SpriteState
     {
+        public byte YPosition;
         public byte TileIndex;
         public byte PatternLow;
         public byte PatternHigh;
         public byte Attributes;
         public byte XCounter;
-        public byte Row;
         public bool IsSpriteZero;
     }
 }

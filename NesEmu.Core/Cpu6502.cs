@@ -5,6 +5,7 @@ public sealed partial class Cpu6502
     private readonly ICpuBus _bus;
     private readonly ICpuCycleObserver? _cycleObserver;
     private bool _nmiRequested;
+    private bool _nmiLineLow;
     private bool _irqLine;
     private bool _halted;
     private PendingInterrupt _pendingInterrupt;
@@ -38,11 +39,22 @@ public sealed partial class Cpu6502
         Status = CpuStatusFlags.InterruptDisable | CpuStatusFlags.Unused;
         ProgramCounter = ReadWordRaw(0xFFFC);
         _nmiRequested = false;
+        _nmiLineLow = false;
         _halted = false;
         _pendingInterrupt = PendingInterrupt.None;
     }
 
     public void RequestNmi() => _nmiRequested = true;
+    public void SetNmiLine(bool low)
+    {
+        if (!_nmiLineLow && low)
+        {
+            _nmiRequested = true;
+        }
+
+        _nmiLineLow = low;
+    }
+
     public void SetIrqLine(bool asserted) => _irqLine = asserted;
 
     public int Step()
@@ -611,4 +623,8 @@ public sealed partial class Cpu6502
 
     private CpuStatusFlags SanitizeStatus(byte value) =>
         (CpuStatusFlags)((value & ~(byte)CpuStatusFlags.Break) | (byte)CpuStatusFlags.Unused);
+
+    private void BeginCpuCycle()
+    {
+    }
 }
