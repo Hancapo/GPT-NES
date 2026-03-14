@@ -2,6 +2,13 @@
              xmlns:shadui="clr-namespace:ShadUI;assembly=ShadUI"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="NesEmu.App.App">
+  <Application.Resources>
+    <SolidColorBrush x:Key="PrimaryColor" Color="#FF2B3138" />
+    <SolidColorBrush x:Key="PrimaryForegroundColor" Color="#FFF3F4F6" />
+    <SolidColorBrush x:Key="CardBackgroundColor" Color="#FF11161C" />
+    <SolidColorBrush x:Key="BorderColor" Color="#FF29313A" />
+    <SolidColorBrush x:Key="ForegroundColor" Color="#FFE8ECF1" />
+  </Application.Resources>
   <Application.Styles>
     <shadui:ShadTheme />
   </Application.Styles>

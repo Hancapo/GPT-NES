@@ -66,6 +66,22 @@ public sealed class EmulatorHost : IDisposable
 
     public bool TryApplyAudioSettings(AudioOutputSettings settings, out string? error)
     {
+        if (_disposed)
+        {
+            error = "Audio output is not available.";
+            return false;
+        }
+
+        var normalized = NormalizeAudioSettings(settings);
+        if (normalized.Backend == _audioSettings.Backend
+            && normalized.OutputLatencyMilliseconds == _audioSettings.OutputLatencyMilliseconds)
+        {
+            _audioSettings.MasterVolumePercent = normalized.MasterVolumePercent;
+            _masterVolumeScale = normalized.MasterVolumePercent / 100.0f;
+            error = null;
+            return true;
+        }
+
         return TryRecreateAudioOutput(settings, rescheduleLinuxStartupRecovery: true, out error);
     }
 

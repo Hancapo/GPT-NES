@@ -45,6 +45,13 @@
     <Style Selector="shadui|SidebarItem">
       <Setter Property="Margin" Value="0,0,0,4" />
     </Style>
+    <Style Selector="Path.settings-icon">
+      <Setter Property="Width" Value="14" />
+      <Setter Property="Height" Value="14" />
+      <Setter Property="Fill" Value="{DynamicResource ForegroundColor}" />
+      <Setter Property="Opacity" Value="0.82" />
+      <Setter Property="Stretch" Value="Uniform" />
+    </Style>
   </shadui:Window.Styles>
 
   <shadui:Window.LogoContent>
@@ -68,21 +75,49 @@
           <StackPanel Spacing="4">
             <shadui:SidebarItem x:Name="VideoSectionItem"
                                 Tag="Video"
-                                Content="Video"
                                 IsChecked="True"
-                                Checked="SettingsSectionItem_OnChecked" />
+                                Checked="SettingsSectionItem_OnChecked">
+              <shadui:SidebarItem.Content>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="settings-icon"
+                        Data="M4,5 H20 V15 H4 Z M10,17 H14 V19 H10 Z M8,20 H16 V21 H8 Z" />
+                  <TextBlock Text="Video" />
+                </StackPanel>
+              </shadui:SidebarItem.Content>
+            </shadui:SidebarItem>
             <shadui:SidebarItem x:Name="AudioSectionItem"
                                 Tag="Audio"
-                                Content="Audio"
-                                Checked="SettingsSectionItem_OnChecked" />
+                                Checked="SettingsSectionItem_OnChecked">
+              <shadui:SidebarItem.Content>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="settings-icon"
+                        Data="M4,10 H8 L12,6 V18 L8,14 H4 Z M14,10 H16 V14 H14 Z M18,8 H20 V16 H18 Z" />
+                  <TextBlock Text="Audio" />
+                </StackPanel>
+              </shadui:SidebarItem.Content>
+            </shadui:SidebarItem>
             <shadui:SidebarItem x:Name="ControlsSectionItem"
                                 Tag="Controls"
-                                Content="Controls"
-                                Checked="SettingsSectionItem_OnChecked" />
+                                Checked="SettingsSectionItem_OnChecked">
+              <shadui:SidebarItem.Content>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="settings-icon"
+                        Data="M7,8 A2,2 0 0 1 9,10 A2,2 0 0 1 7,12 A2,2 0 0 1 5,10 A2,2 0 0 1 7,8 Z M17,8 A2,2 0 0 1 19,10 A2,2 0 0 1 17,12 A2,2 0 0 1 15,10 A2,2 0 0 1 17,8 Z M7,4 H17 A4,4 0 0 1 21,8 V12 A4,4 0 0 1 17,16 H15 L13,19 H11 L9,16 H7 A4,4 0 0 1 3,12 V8 A4,4 0 0 1 7,4 Z" />
+                  <TextBlock Text="Controls" />
+                </StackPanel>
+              </shadui:SidebarItem.Content>
+            </shadui:SidebarItem>
             <shadui:SidebarItem x:Name="MidiSectionItem"
                                 Tag="MIDI"
-                                Content="MIDI"
-                                Checked="SettingsSectionItem_OnChecked" />
+                                Checked="SettingsSectionItem_OnChecked">
+              <shadui:SidebarItem.Content>
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Path Classes="settings-icon"
+                        Data="M15,4 V14.5 A3.5,3.5 0 1 1 13,11.35 V7 H9 V16.5 A3.5,3.5 0 1 1 7,13.35 V4 Z" />
+                  <TextBlock Text="MIDI" />
+                </StackPanel>
+              </shadui:SidebarItem.Content>
+            </shadui:SidebarItem>
           </StackPanel>
         </shadui:Sidebar>
       </Border>
@@ -456,14 +491,18 @@
                     <ComboBox x:Name="OutputDeviceComboBox"
                               Grid.Row="1"
                               Grid.Column="1"
-                              Grid.ColumnSpan="2"
                               Classes="setting-combo"
                               SelectionChanged="MidiSelection_OnChanged" />
+                    <Button Grid.Row="1"
+                            Grid.Column="2"
+                            Padding="12,6"
+                            Content="Refresh"
+                            Click="RefreshMidiDevicesButton_OnClick" />
                     <TextBlock Grid.Row="2"
                                Grid.Column="1"
                                Grid.ColumnSpan="2"
                                Classes="help"
-                               Text="The device list refreshes automatically while this page is open." />
+                               Text="The device list refreshes automatically every few seconds while this page is open. Use Refresh for immediate rescans." />
 
                     <CheckBox x:Name="MusicOnlyCheckBox"
                               Grid.Row="3"

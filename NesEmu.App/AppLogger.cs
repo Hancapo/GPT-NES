@@ -79,6 +79,33 @@ internal static class AppLogger
         Write("ERROR", message, exception);
     }
 
+    public static string GetProcessResourceSummary()
+    {
+        try
+        {
+            using var process = Process.GetCurrentProcess();
+            process.Refresh();
+
+            var summary = new StringBuilder()
+                .Append("Process handles=")
+                .Append(process.HandleCount);
+
+            if (OperatingSystem.IsWindows())
+            {
+                summary.Append(", USER=")
+                    .Append(GetGuiResources(process.Handle, UserGuiResources))
+                    .Append(", GDI=")
+                    .Append(GetGuiResources(process.Handle, GdiGuiResources));
+            }
+
+            return summary.ToString();
+        }
+        catch (Exception ex)
+        {
+            return $"Process resources unavailable: {ex.GetType().Name}";
+        }
+    }
+
     public static void OpenLogDirectory()
     {
         EnsureInitialized();
@@ -176,4 +203,10 @@ internal static class AppLogger
         {
         }
     }
+
+    private const uint GdiGuiResources = 0;
+    private const uint UserGuiResources = 1;
+
+    [DllImport("user32.dll")]
+    private static extern int GetGuiResources(nint hProcess, uint uiFlags);
 }

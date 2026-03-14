@@ -48,7 +48,7 @@ internal sealed class RtMidiOutputPortFactory : IMidiOutputPortFactory
                 index++;
             }
 
-            AppLogger.Info($"Enumerated {devices.Count - 1} MIDI output device(s).");
+            AppLogger.Info($"Enumerated {devices.Count - 1} MIDI output device(s). {AppLogger.GetProcessResourceSummary()}");
         }
         catch (Exception ex)
         {

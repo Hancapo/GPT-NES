@@ -34,6 +34,8 @@ public partial class SettingsWindow : ShadWindow
     private string? _pendingKeyboardBindingAction;
     private string? _pendingControllerBindingAction;
     private SettingsSection _activeSection = SettingsSection.Audio;
+    private bool _allowClose;
+    private bool _backgroundTimersActive;
     private bool _suppressEvents = true;
 
     public SettingsWindow()
@@ -41,6 +43,7 @@ public partial class SettingsWindow : ShadWindow
         InitializeComponent();
         _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         _midiDeviceRefreshTimer = CreateMidiDeviceRefreshTimer();
+        Closing += SettingsWindow_OnClosing;
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
         SelectSection(SettingsSection.Video);
@@ -49,7 +52,6 @@ public partial class SettingsWindow : ShadWindow
         LoadAudioSettings(AudioOutputSettings.CreateDefault());
         LoadInputSettings(InputSettings.CreateDefault(), DefaultControllerDevices);
         LoadMidiSettings(MidiOutputSettings.CreateDefault(), [new MidiOutputDeviceInfo(-1, "No MIDI output")]);
-        StartBackgroundTimers();
         _suppressEvents = false;
     }
 
@@ -69,17 +71,18 @@ public partial class SettingsWindow : ShadWindow
         InitializeComponent();
         _controllerBindingCaptureTimer = CreateControllerBindingCaptureTimer();
         _midiDeviceRefreshTimer = CreateMidiDeviceRefreshTimer();
+        Closing += SettingsWindow_OnClosing;
         AddHandler(KeyDownEvent, SettingsWindow_KeyDown, RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(PointerWheelChangedEvent, SettingsWindow_PointerWheelChanged, RoutingStrategies.Tunnel, handledEventsToo: true);
         SelectSection(SettingsSection.Video);
         InitializeOptions();
         LoadSettingsFromServices();
-        StartBackgroundTimers();
         _suppressEvents = false;
     }
 
     protected override void OnClosed(EventArgs e)
     {
+        SetBackgroundTimersActive(false);
         _audioSettingsApplyCancellation?.Cancel();
         _audioSettingsApplyCancellation?.Dispose();
         _midiSettingsApplyCancellation?.Cancel();
@@ -90,6 +93,44 @@ public partial class SettingsWindow : ShadWindow
         _midiDeviceRefreshTimer.Stop();
         _inputState?.CancelControllerBindingCapture();
         base.OnClosed(e);
+    }
+
+    public void ShowForOwner(Window owner)
+    {
+        LoadSettingsFromServices();
+        SetBackgroundTimersActive(true);
+
+        if (WindowState == WindowState.Minimized)
+        {
+            WindowState = WindowState.Normal;
+        }
+
+        if (!IsVisible)
+        {
+            if (Owner is null)
+            {
+                Show(owner);
+            }
+            else
+            {
+                Show();
+            }
+        }
+
+        Activate();
+
+        if (_activeSection == SettingsSection.Midi)
+        {
+            Dispatcher.UIThread.Post(() => TryRefreshMidiDevices(force: true), DispatcherPriority.Background);
+        }
+
+        AppLogger.Info($"Settings window shown. {AppLogger.GetProcessResourceSummary()}");
+    }
+
+    public void PrepareForShutdown()
+    {
+        _allowClose = true;
+        SetBackgroundTimersActive(false);
     }
 
     private static IReadOnlyList<ControllerDeviceInfo> DefaultControllerDevices =>
@@ -373,6 +414,11 @@ public partial class SettingsWindow : ShadWindow
         ScheduleMidiSettingsApply();
     }
 
+    private void RefreshMidiDevicesButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        TryRefreshMidiDevices(force: true);
+    }
+
     private void RestoreDefaultsButton_OnClick(object? sender, RoutedEventArgs e)
     {
         _audioSettingsApplyCancellation?.Cancel();
@@ -402,6 +448,22 @@ public partial class SettingsWindow : ShadWindow
     private void CloseButton_OnClick(object? sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void SettingsWindow_OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        if (_allowClose)
+        {
+            return;
+        }
+
+        e.Cancel = true;
+        CancelPendingBindingCapture();
+        SetBackgroundTimersActive(false);
+        Hide();
+        Owner?.Activate();
+        _statusSink?.Invoke("Settings closed.");
+        AppLogger.Info($"Settings window hidden for reuse. {AppLogger.GetProcessResourceSummary()}");
     }
 
     private void SettingsWindow_KeyDown(object? sender, KeyEventArgs e)
@@ -1071,17 +1133,33 @@ public partial class SettingsWindow : ShadWindow
     {
         var timer = new DispatcherTimer
         {
-            Interval = TimeSpan.FromSeconds(1)
+            Interval = TimeSpan.FromSeconds(5)
         };
 
         timer.Tick += MidiDeviceRefreshTimer_OnTick;
         return timer;
     }
 
-    private void StartBackgroundTimers()
+    private void SetBackgroundTimersActive(bool isActive)
     {
-        _controllerBindingCaptureTimer.Start();
-        _midiDeviceRefreshTimer.Start();
+        if (_backgroundTimersActive == isActive)
+        {
+            return;
+        }
+
+        if (isActive)
+        {
+            _controllerBindingCaptureTimer.Start();
+            _midiDeviceRefreshTimer.Start();
+        }
+        else
+        {
+            _controllerBindingCaptureTimer.Stop();
+            _midiDeviceRefreshTimer.Stop();
+        }
+
+        _backgroundTimersActive = isActive;
+        AppLogger.Info($"Settings background timers {(isActive ? "started" : "stopped")}. {AppLogger.GetProcessResourceSummary()}");
     }
 
     private void ControllerBindingCaptureTimer_OnTick(object? sender, EventArgs e)
@@ -1102,6 +1180,7 @@ public partial class SettingsWindow : ShadWindow
     private void MidiDeviceRefreshTimer_OnTick(object? sender, EventArgs e)
     {
         if (_activeSection != SettingsSection.Midi
+            || !IsVisible
             || _midiOutput is null
             || OutputDeviceComboBox is null
             || OutputDeviceComboBox.IsDropDownOpen)

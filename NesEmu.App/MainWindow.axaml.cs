@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
@@ -27,6 +29,8 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private static readonly CornerRadius FullscreenCornerRadius = new(0);
     private static readonly Thickness WindowedBorderThickness = new(1);
     private static readonly Thickness FullscreenBorderThickness = new(0);
+    private static readonly string ApplicationVersionText = GetApplicationVersionText();
+    private static readonly string OperatingSystemText = GetOperatingSystemText();
 
     private readonly InputStateSource _inputState = new();
     private readonly MidiOutputService _midiOutput = new();
@@ -47,6 +51,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private int _fpsFrameCount;
     private double _lastFps;
     private WindowState _windowedStateBeforeFullscreen = WindowState.Normal;
+    private bool _suppressFooterVolumeEvents = true;
 
     public MainWindow()
     {
@@ -77,6 +82,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         UpdateFullscreenPresentation();
         SetStatus("Ready.");
         UpdateUiState();
+        _suppressFooterVolumeEvents = false;
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -91,7 +97,12 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        _settingsWindow?.Close();
+        if (_settingsWindow is not null)
+        {
+            _settingsWindow.PrepareForShutdown();
+            _settingsWindow.Close();
+        }
+
         OpenGlGameView.RendererFailed -= OpenGlGameView_OnRendererFailed;
         _inputState.Dispose();
         _emulator.Dispose();
@@ -237,19 +248,11 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void SettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
-        if (_settingsWindow is not null)
-        {
-            AppLogger.Info("Settings window re-activated.");
-            _settingsWindow.Activate();
-            return;
-        }
-
         _inputState.Clear();
-        AppLogger.Info("Opening settings window.");
+        _settingsWindow ??= new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
 
-        _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
-        _settingsWindow.Closed += SettingsWindow_OnClosed;
-        _settingsWindow.Show(this);
+        AppLogger.Info($"Opening settings window. {AppLogger.GetProcessResourceSummary()}");
+        _settingsWindow.ShowForOwner(this);
     }
 
     private void OpenLogFolderMenuItem_OnClick(object? sender, RoutedEventArgs e)
@@ -264,17 +267,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             AppLogger.Error("Could not open log folder.", ex);
             SetStatus($"Could not open log folder. Path: {AppLogger.LogDirectoryPath}");
         }
-    }
-
-    private void SettingsWindow_OnClosed(object? sender, EventArgs e)
-    {
-        if (_settingsWindow is not null)
-        {
-            _settingsWindow.Closed -= SettingsWindow_OnClosed;
-            _settingsWindow = null;
-        }
-
-        CaptureGameInput();
     }
 
     private void GameViewport_OnPointerPressed(object? sender, PointerPressedEventArgs e)
@@ -393,16 +385,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         var stopped = hasRom && _emulator.IsStopped;
         var running = hasRom && !paused && !stopped;
 
-        RunStateText.Text = !hasRom
-            ? "No ROM"
-            : stopped ? "Stopped"
-            : paused ? "Paused"
-            : "Running";
-
-        RomText.Text = hasRom
-            ? Path.GetFileName(_emulator.LoadedRomPath)
-            : "No ROM loaded";
-
         PauseMenuItem.Header = stopped ? "Start" : paused ? "Resume" : "Pause";
 
         if (!hasRom)
@@ -430,6 +412,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         SetTransportEnabled(hasRom);
         StopMenuItem.IsEnabled = hasRom;
         Title = hasRom ? $"NesEmu - {Path.GetFileName(_emulator.LoadedRomPath)}" : "NesEmu";
+        RefreshFooterDetails();
     }
 
     public VideoOutputSettings GetVideoSettingsSnapshot() => _videoSettings.Clone();
@@ -475,7 +458,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         _fpsFrameCount = 0;
         _lastFps = 0;
         _fpsStopwatch.Restart();
-        FpsText.Text = "0.0 FPS";
+        RefreshFooterDetails();
     }
 
     private void SetTransportEnabled(bool enabled)
@@ -488,6 +471,48 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private void SetStatus(string message)
     {
         StatusText.Text = message;
+        RefreshFooterDetails();
+    }
+
+    private void RefreshFooterDetails()
+    {
+        var audioSettings = _emulator.GetAudioSettingsSnapshot();
+        var hasRom = _emulator.HasRomLoaded;
+
+        RomText.Text = hasRom
+            ? Path.GetFileName(_emulator.LoadedRomPath)
+            : "No ROM loaded";
+
+        FpsText.Text = $"{_lastFps:0.0} FPS";
+        RendererText.Text = _videoSettings.Renderer == VideoRendererKind.OpenGl ? "OpenGL" : "Software";
+        MidiDeviceText.Text = GetMidiFooterText();
+        OsText.Text = OperatingSystemText;
+        VersionText.Text = ApplicationVersionText;
+
+        _suppressFooterVolumeEvents = true;
+        try
+        {
+            FooterVolumeSlider.Value = audioSettings.MasterVolumePercent;
+        }
+        finally
+        {
+            _suppressFooterVolumeEvents = false;
+        }
+
+        VolumeText.Text = $"{audioSettings.MasterVolumePercent}%";
+    }
+
+    private string GetMidiFooterText()
+    {
+        var status = _midiOutput.GetStatusText();
+        if (string.Equals(status, "MIDI disabled", StringComparison.Ordinal))
+        {
+            return "Disabled";
+        }
+
+        return status.StartsWith("MIDI: ", StringComparison.Ordinal)
+            ? status[6..]
+            : status;
     }
 
     private void ApplyVideoRenderer()
@@ -495,7 +520,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         var useOpenGl = _videoSettings.Renderer == VideoRendererKind.OpenGl;
         GameImage.IsVisible = !useOpenGl;
         OpenGlGameView.IsVisible = useOpenGl;
-        RendererText.Text = useOpenGl ? "OpenGL" : "Software";
 
         if (useOpenGl)
         {
@@ -511,6 +535,8 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             CopyLatestFrameToSoftwareScratch();
             UploadSoftwareFrameFromScratch();
         }
+
+        RefreshFooterDetails();
     }
 
     private void CopyLatestFrameToSoftwareScratch()
@@ -550,6 +576,47 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         {
             GameViewport.Focus();
         }
+    }
+
+    private void FooterVolumeSlider_OnValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
+    {
+        if (_suppressFooterVolumeEvents)
+        {
+            return;
+        }
+
+        ApplyFooterVolume(Math.Clamp((int)Math.Round(e.NewValue), 0, 200));
+    }
+
+    private void VolumeDownButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        ApplyFooterVolume(Math.Max(0, _emulator.GetAudioSettingsSnapshot().MasterVolumePercent - 5));
+    }
+
+    private void VolumeUpButton_OnClick(object? sender, RoutedEventArgs e)
+    {
+        ApplyFooterVolume(Math.Min(200, _emulator.GetAudioSettingsSnapshot().MasterVolumePercent + 5));
+    }
+
+    private void ApplyFooterVolume(int volumePercent)
+    {
+        var settings = _emulator.GetAudioSettingsSnapshot();
+        volumePercent = Math.Clamp(volumePercent, 0, 200);
+
+        if (settings.MasterVolumePercent == volumePercent)
+        {
+            RefreshFooterDetails();
+            return;
+        }
+
+        settings.MasterVolumePercent = volumePercent;
+        if (_emulator.TryApplyAudioSettings(settings, out var error))
+        {
+            RefreshFooterDetails();
+            return;
+        }
+
+        SetStatus(error ?? "Could not update the volume.");
     }
 
     private void ToggleFullscreen()
@@ -597,11 +664,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             RootLayoutGrid.Margin = isFullscreen ? FullscreenRootMargin : WindowedRootMargin;
         }
 
-        if (TopPanelBorder is not null)
-        {
-            TopPanelBorder.IsVisible = !isFullscreen;
-        }
-
         if (StatusPanelBorder is not null)
         {
             StatusPanelBorder.IsVisible = !isFullscreen;
@@ -619,5 +681,29 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             GameViewport.CornerRadius = isFullscreen ? FullscreenCornerRadius : WindowedGameViewportCornerRadius;
             GameViewport.BorderThickness = isFullscreen ? FullscreenBorderThickness : WindowedBorderThickness;
         }
+    }
+
+    private static string GetApplicationVersionText()
+    {
+        var version =
+            Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? Assembly.GetExecutingAssembly().GetName().Version?.ToString()
+            ?? "1.0.0";
+
+        var normalized = version.Split('+', 2)[0];
+        return normalized.StartsWith('v') ? normalized : $"v{normalized}";
+    }
+
+    private static string GetOperatingSystemText()
+    {
+        var platform = OperatingSystem.IsWindows()
+            ? "Windows"
+            : OperatingSystem.IsLinux()
+                ? "Linux"
+                : OperatingSystem.IsMacOS()
+                    ? "macOS"
+                    : RuntimeInformation.OSDescription;
+
+        return $"{platform} {RuntimeInformation.ProcessArchitecture.ToString().ToLowerInvariant()}";
     }
 }

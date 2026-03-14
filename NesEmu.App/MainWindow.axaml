@@ -18,35 +18,67 @@
                UseLayoutRounding="True"
                WindowStartupLocation="CenterScreen">
   <shadui:Window.Styles>
-    <Style Selector="Border.section">
-      <Setter Property="Background" Value="{DynamicResource CardBackgroundColor}" />
-      <Setter Property="BorderBrush" Value="{DynamicResource BorderColor}" />
+    <Style Selector="Border.surface">
+      <Setter Property="Background" Value="#FF0B0F14" />
+      <Setter Property="BorderBrush" Value="#FF202B38" />
       <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="CornerRadius" Value="22" />
+      <Setter Property="CornerRadius" Value="14" />
     </Style>
-    <Style Selector="TextBlock.caption">
-      <Setter Property="Opacity" Value="0.72" />
-      <Setter Property="FontSize" Value="13" />
+    <Style Selector="Border.footer-panel">
+      <Setter Property="Background" Value="#FF0F141B" />
+      <Setter Property="BorderBrush" Value="#FF243140" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="10" />
     </Style>
-    <Style Selector="TextBlock.hero-title">
-      <Setter Property="FontSize" Value="30" />
+    <Style Selector="Border.footer-icon">
+      <Setter Property="Width" Value="26" />
+      <Setter Property="Height" Value="26" />
+      <Setter Property="Padding" Value="6" />
+      <Setter Property="CornerRadius" Value="8" />
+      <Setter Property="Background" Value="#FF161D27" />
+      <Setter Property="BorderBrush" Value="#FF2C3A4D" />
+      <Setter Property="BorderThickness" Value="1" />
+    </Style>
+    <Style Selector="Path.footer-icon-path">
+      <Setter Property="Fill" Value="#FFE3ECF7" />
+      <Setter Property="Stretch" Value="Uniform" />
+    </Style>
+    <Style Selector="TextBlock.footer-label">
+      <Setter Property="FontSize" Value="10" />
       <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Opacity" Value="0.54" />
     </Style>
-    <Style Selector="Button.header-action">
-      <Setter Property="MinWidth" Value="126" />
-      <Setter Property="Height" Value="38" />
+    <Style Selector="TextBlock.footer-value">
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+    </Style>
+    <Style Selector="Button.volume-step">
+      <Setter Property="MinWidth" Value="28" />
+      <Setter Property="Height" Value="28" />
+      <Setter Property="Padding" Value="0" />
+    </Style>
+    <Style Selector="Slider.footer-volume">
+      <Setter Property="Minimum" Value="0" />
+      <Setter Property="Maximum" Value="200" />
+      <Setter Property="Width" Value="110" />
     </Style>
   </shadui:Window.Styles>
 
   <shadui:Window.LogoContent>
     <Border Margin="12,8,0,8"
-            Padding="10,4"
-            CornerRadius="999"
-            Background="{DynamicResource PrimaryColor}">
-      <TextBlock FontSize="11"
+            Width="30"
+            Height="30"
+            CornerRadius="8"
+            Background="#FF17212C"
+            BorderBrush="#FF2B394D"
+            BorderThickness="1">
+      <TextBlock HorizontalAlignment="Center"
+                 VerticalAlignment="Center"
+                 FontSize="12"
                  FontWeight="Bold"
-                 Foreground="{DynamicResource PrimaryForegroundColor}"
-                 Text="NES" />
+                 Foreground="#FFE8EEF6"
+                 Text="N" />
     </Border>
   </shadui:Window.LogoContent>
 
@@ -75,93 +107,30 @@
   </shadui:Window.MenuBarContent>
 
   <Grid x:Name="RootLayoutGrid"
-        RowDefinitions="Auto,*,Auto"
+        RowDefinitions="*,Auto"
         Margin="24,22,24,20">
-    <Border x:Name="TopPanelBorder"
-            Grid.Row="0"
-            Classes="section"
-            Padding="22,20"
-            Margin="0,0,0,18">
-      <Grid ColumnDefinitions="*,Auto"
-            RowDefinitions="Auto,Auto"
-            ColumnSpacing="20"
-            RowSpacing="16">
-        <StackPanel Spacing="6">
-          <TextBlock Classes="hero-title" Text="NesEmu" />
-          <TextBlock x:Name="RomText"
-                     Classes="caption"
-                     FontSize="15"
-                     Text="No ROM loaded" />
-        </StackPanel>
-
-        <StackPanel Grid.Column="1"
-                    Orientation="Horizontal"
-                    Spacing="10"
-                    VerticalAlignment="Top">
-        </StackPanel>
-
-        <StackPanel Grid.Row="1"
-                    Grid.ColumnSpan="2"
-                    Orientation="Horizontal"
-                    Spacing="10">
-          <shadui:Badge Classes="Outline">
-            <TextBlock x:Name="RunStateText"
-                       FontWeight="SemiBold"
-                       Text="No ROM" />
-          </shadui:Badge>
-          <shadui:Badge>
-            <TextBlock x:Name="FpsText"
-                       FontWeight="SemiBold"
-                       Text="0.0 FPS" />
-          </shadui:Badge>
-          <shadui:Badge Classes="Outline">
-            <TextBlock x:Name="RendererText"
-                       FontWeight="SemiBold"
-                       Text="Software" />
-          </shadui:Badge>
-        </StackPanel>
-      </Grid>
-    </Border>
-
     <Border x:Name="ViewportShellBorder"
-            Grid.Row="1"
-            Classes="section"
-            Padding="24">
+            Classes="surface"
+            Padding="18">
       <Grid>
-        <Grid IsHitTestVisible="False">
-          <Border CornerRadius="18">
-            <Border.Background>
-              <LinearGradientBrush StartPoint="0,0"
-                                   EndPoint="1,1">
-                <GradientStop Color="#FF101828" Offset="0" />
-                <GradientStop Color="#FF09090B" Offset="0.62" />
-                <GradientStop Color="#FF0B1220" Offset="1" />
-              </LinearGradientBrush>
-            </Border.Background>
-          </Border>
-          <Ellipse Width="520"
-                   Height="520"
-                   HorizontalAlignment="Left"
-                   VerticalAlignment="Top"
-                   Margin="-140,-220,0,0"
-                   Fill="#2A3B82F6" />
-          <Ellipse Width="420"
-                   Height="420"
-                   HorizontalAlignment="Right"
-                   VerticalAlignment="Bottom"
-                   Margin="0,0,-120,-150"
-                   Fill="#2214B8A6" />
-        </Grid>
+        <Border CornerRadius="12"
+                Background="#FF0D1218" />
+
+        <Border Margin="12"
+                CornerRadius="12"
+                BorderBrush="#141B23"
+                BorderThickness="1"
+                Background="#0A0E13" />
 
         <Border x:Name="GameViewport"
                 Focusable="True"
                 HorizontalAlignment="Stretch"
                 VerticalAlignment="Stretch"
-                CornerRadius="20"
+                CornerRadius="12"
                 BorderThickness="1"
                 BorderBrush="#2B3440"
                 Background="#05080A"
-                Padding="28"
+                Padding="24"
                 PointerPressed="GameViewport_OnPointerPressed">
           <Grid>
             <Viewbox Stretch="Uniform"
@@ -169,11 +138,11 @@
                      HorizontalAlignment="Center"
                      VerticalAlignment="Center"
                      RenderOptions.BitmapInterpolationMode="None">
-              <Border Background="#050505"
-                      BorderBrush="#0F172A"
+              <Border Background="#030508"
+                      BorderBrush="#1B2430"
                       BorderThickness="1"
-                      CornerRadius="28"
-                      Padding="20">
+                      CornerRadius="10"
+                      Padding="18">
                 <Grid Width="256"
                       Height="240">
                   <Image x:Name="GameImage"
@@ -188,26 +157,43 @@
             </Viewbox>
 
             <Border x:Name="OverlayPanel"
-                    Width="360"
-                    Padding="22"
-                    Classes="section"
+                    Width="336"
+                    Padding="20"
                     HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
+                    VerticalAlignment="Center"
+                    Background="#EE10151C"
+                    BorderBrush="#FF293646"
+                    BorderThickness="1"
+                    CornerRadius="10">
               <StackPanel Spacing="14">
+                <Border Width="42"
+                        Height="42"
+                        HorizontalAlignment="Center"
+                        CornerRadius="10"
+                        Background="#FF17212C"
+                        BorderBrush="#FF2C3A4D"
+                        BorderThickness="1">
+                  <Path Width="18"
+                        Height="18"
+                        Classes="footer-icon-path"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Data="M5,3 H19 C20.1,3 21,3.9 21,5 V19 C21,20.1 20.1,21 19,21 H5 C3.9,21 3,20.1 3,19 V5 C3,3.9 3.9,3 5,3 Z M7,6 H17 V9 H7 Z M8,12 H10 V17 H8 Z M14,12 H16 V17 H14 Z" />
+                </Border>
                 <TextBlock x:Name="OverlayTitleText"
-                           FontSize="26"
+                           FontSize="24"
                            FontWeight="SemiBold"
                            HorizontalAlignment="Center"
                            Text="NesEmu" />
                 <TextBlock x:Name="OverlayBodyText"
-                           Classes="caption"
                            FontSize="14"
+                           Opacity="0.74"
                            TextAlignment="Center"
                            TextWrapping="Wrap"
                            Text="Open a NES ROM to get started." />
                 <Button x:Name="OverlayOpenButton"
                         Classes="Primary"
-                        MinWidth="144"
+                        MinWidth="150"
                         HorizontalAlignment="Center"
                         Content="Open ROM..."
                         Click="OpenRomButton_OnClick" />
@@ -219,13 +205,153 @@
     </Border>
 
     <Border x:Name="StatusPanelBorder"
-            Grid.Row="2"
-            Classes="section"
-            Padding="16,12"
-            Margin="0,18,0,0">
-      <TextBlock x:Name="StatusText"
-                 VerticalAlignment="Center"
-                 Text="Ready." />
+            Grid.Row="1"
+            Classes="footer-panel"
+            Padding="14,10"
+            Margin="0,16,0,0">
+      <Grid ColumnDefinitions="*,Auto"
+            ColumnSpacing="18">
+        <Grid ColumnDefinitions="220,90,*,120,220"
+              ColumnSpacing="16">
+          <Grid ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M5,3 H19 C20.1,3 21,3.9 21,5 V19 C21,20.1 20.1,21 19,21 H5 C3.9,21 3,20.1 3,19 V5 C3,3.9 3.9,3 5,3 Z M7,6 H17 V9 H7 Z M8,12 H10 V17 H8 Z M14,12 H16 V17 H14 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="ROM" />
+              <TextBlock x:Name="RomText"
+                         Classes="footer-value"
+                         Text="No ROM loaded" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Grid.Column="1"
+                ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M4,19 H7 V12 H4 Z M10,19 H13 V9 H10 Z M16,19 H19 V5 H16 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="FPS" />
+              <TextBlock x:Name="FpsText"
+                         Classes="footer-value"
+                         Text="0.0 FPS" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Grid.Column="2"
+                ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M15,4 V14.5 A3.5,3.5 0 1 1 13,11.35 V7 H9 V16.5 A3.5,3.5 0 1 1 7,13.35 V4 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="MIDI OUTPUT" />
+              <TextBlock x:Name="MidiDeviceText"
+                         Classes="footer-value"
+                         Text="Disabled" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Grid.Column="3"
+                ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M4,5 H20 V15 H4 Z M10,17 H14 V19 H10 Z M8,20 H16 V21 H8 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="RENDERER" />
+              <TextBlock x:Name="RendererText"
+                         Classes="footer-value"
+                         Text="Software" />
+            </StackPanel>
+          </Grid>
+
+          <Grid Grid.Column="4"
+                ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M4,10 H8 L12,6 V18 L8,14 H4 Z M14,10 H16 V14 H14 Z M18,8 H20 V16 H18 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="2"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="GAME VOLUME" />
+              <Grid ColumnDefinitions="Auto,*,Auto,Auto"
+                    ColumnSpacing="8">
+                <Slider x:Name="FooterVolumeSlider"
+                        Grid.Column="1"
+                        Classes="footer-volume"
+                        ValueChanged="FooterVolumeSlider_OnValueChanged" />
+                <TextBlock x:Name="VolumeText"
+                           Grid.Column="2"
+                           Width="40"
+                           VerticalAlignment="Center"
+                           FontWeight="SemiBold"
+                           TextAlignment="Right"
+                           Text="100%" />
+              </Grid>
+            </StackPanel>
+          </Grid>
+        </Grid>
+
+        <StackPanel Grid.Column="1"
+                    Orientation="Horizontal"
+                    Spacing="16"
+                    VerticalAlignment="Center">
+          <Grid ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M4,5 H20 V15 H4 Z M9,17 H15 V19 H9 Z M7,20 H17 V21 H7 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="OS" />
+              <TextBlock x:Name="OsText"
+                         Classes="footer-value"
+                         Width="118"
+                         Text="Windows x64" />
+            </StackPanel>
+          </Grid>
+
+          <Grid ColumnDefinitions="Auto,*"
+                ColumnSpacing="10">
+            <Border Classes="footer-icon">
+              <Path Classes="footer-icon-path"
+                    Data="M4,7 V17 L10,21 L20,11 L13,4 H7 A3,3 0 0 0 4,7 Z M8,8.5 A1.5,1.5 0 1 1 8,11.5 A1.5,1.5 0 1 1 8,8.5 Z" />
+            </Border>
+            <StackPanel Grid.Column="1"
+                        Spacing="1"
+                        VerticalAlignment="Center">
+              <TextBlock Classes="footer-label" Text="VERSION" />
+              <TextBlock x:Name="VersionText"
+                         Classes="footer-value"
+                         Width="96"
+                         Text="v1.0.0" />
+            </StackPanel>
+          </Grid>
+        </StackPanel>
+
+        <TextBlock x:Name="StatusText"
+                   IsVisible="False"
+                   Text="Ready." />
+      </Grid>
     </Border>
   </Grid>
 </shadui:Window>
