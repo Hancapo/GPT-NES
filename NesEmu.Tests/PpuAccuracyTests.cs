@@ -255,6 +255,64 @@ public sealed class PpuAccuracyTests
         }
     }
 
+    [Fact]
+    public void BackgroundPaletteSelectionRemainsStableAcrossTheScanline()
+    {
+        var romPath = CreateSolidBackgroundTestRom();
+        try
+        {
+            var ppu = new Ppu2C02(CartridgeImage.Load(romPath));
+
+            SetPpuAddress(ppu, 0x3F00);
+            ppu.CpuWrite(0x2007, 0x00);
+            ppu.CpuWrite(0x2007, 0x01);
+
+            SetPpuAddress(ppu, 0x3F09);
+            ppu.CpuWrite(0x2007, 0x21);
+
+            ResetScroll(ppu);
+            ppu.CpuWrite(0x2001, 0x0A);
+            AdvancePpuClocks(ppu, 341 * 2);
+
+            var frame = ppu.FrameBuffer;
+            var reference = frame[64];
+
+            Assert.Equal(reference, frame[8]);
+            Assert.Equal(reference, frame[128]);
+            Assert.Equal(reference, frame[248]);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
+    [Fact]
+    public void DummySpriteFetchesStillClockMmc3Irq()
+    {
+        var romPath = CreateMmc3TestRom();
+        try
+        {
+            var cartridge = CartridgeImage.Load(romPath);
+            var ppu = new Ppu2C02(cartridge);
+
+            cartridge.CpuWrite(0xC000, 0x00);
+            cartridge.CpuWrite(0xC001, 0x00);
+            cartridge.CpuWrite(0xE001, 0x00);
+
+            ppu.CpuWrite(0x2000, 0x08);
+            ppu.CpuWrite(0x2001, 0x10);
+
+            AdvancePpuClocks(ppu, 341);
+
+            Assert.True(cartridge.IrqPending);
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
     private static void AdvancePpuClocks(Ppu2C02 ppu, int count)
     {
         for (var i = 0; i < count; i++)
@@ -332,6 +390,53 @@ public sealed class PpuAccuracyTests
         chr[0x10 + 3] = 0xEF;
         chr[0x18 + 3] = 0xEF;
         stream.Write(chr);
+
+        return path;
+    }
+
+    private static string CreateSolidBackgroundTestRom()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nesemu-ppu-solid-bg-{Guid.NewGuid():N}.nes");
+        using var stream = File.Create(path);
+
+        Span<byte> header = stackalloc byte[16];
+        header[0] = (byte)'N';
+        header[1] = (byte)'E';
+        header[2] = (byte)'S';
+        header[3] = 0x1A;
+        header[4] = 1;
+        header[5] = 1;
+        stream.Write(header);
+
+        stream.Write(new byte[0x4000]);
+
+        var chr = new byte[0x2000];
+        for (var row = 0; row < 8; row++)
+        {
+            chr[row] = 0xFF;
+        }
+
+        stream.Write(chr);
+        return path;
+    }
+
+    private static string CreateMmc3TestRom()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"nesemu-ppu-mmc3-{Guid.NewGuid():N}.nes");
+        using var stream = File.Create(path);
+
+        Span<byte> header = stackalloc byte[16];
+        header[0] = (byte)'N';
+        header[1] = (byte)'E';
+        header[2] = (byte)'S';
+        header[3] = 0x1A;
+        header[4] = 2;
+        header[5] = 1;
+        header[6] = 0x40;
+        stream.Write(header);
+
+        stream.Write(new byte[0x8000]);
+        stream.Write(new byte[0x2000]);
 
         return path;
     }

@@ -187,10 +187,10 @@ public sealed class Ppu2C02
         var visibleScanline = _scanline is >= 0 and < 240;
         var prerenderScanline = _scanline == 261;
 
-        if ((visibleScanline || prerenderScanline) && _cycle == 65 && renderingEnabled)
+        if (visibleScanline && _cycle == 65 && renderingEnabled)
         {
             _spriteEvalOamBaseAddress = _oamAddress;
-            EvaluateSpritesForNextScanline(prerenderScanline ? 0 : _scanline + 1);
+            EvaluateSpritesForNextScanline(_scanline + 1);
         }
 
         if ((visibleScanline || prerenderScanline) && renderingEnabled)
@@ -226,6 +226,21 @@ public sealed class Ppu2C02
 
                 StepSpriteShifters();
             }
+            else if (_cycle is >= 257 and <= 320)
+            {
+                _oamAddress = 0;
+
+                if (_cycle == 257)
+                {
+                    LoadBackgroundRegisters();
+                    ProcessSpriteFetchCycle(prerenderScanline);
+                    CopyHorizontalScrollBits();
+                }
+                else
+                {
+                    ProcessSpriteFetchCycle(prerenderScanline);
+                }
+            }
 
             if (_cycle == 256)
             {
@@ -234,9 +249,6 @@ public sealed class Ppu2C02
             else if (_cycle == 257)
             {
                 _oamAddress = 0;
-                LoadNextSpritePatterns();
-                LoadBackgroundRegisters();
-                CopyHorizontalScrollBits();
             }
             else if (prerenderScanline && _cycle is >= 280 and <= 304)
             {
@@ -588,7 +600,7 @@ public sealed class Ppu2C02
         _backgroundPatternLow <<= 1;
         _backgroundPatternHigh = (ushort)((_backgroundPatternHigh << 1) | 0x0001);
         _backgroundAttributeLow <<= 1;
-        _backgroundAttributeHigh = (ushort)((_backgroundAttributeHigh << 1) | 0x0001);
+        _backgroundAttributeHigh <<= 1;
     }
 
     private void StepSpriteShifters()
@@ -788,23 +800,75 @@ public sealed class Ppu2C02
         return (byte)((n << 2) | m);
     }
 
-    private void LoadNextSpritePatterns()
+    private void ProcessSpriteFetchCycle(bool prerenderScanline)
     {
-        for (var i = 0; i < _nextSpriteCount; i++)
+        var slot = (_cycle - 257) >> 3;
+        if (slot is < 0 or >= 8)
         {
-            ref var sprite = ref _nextSprites[i];
-            var row = (_scanline & 0xFF) - sprite.YPosition;
-            if (row < 0 || row >= SpriteHeight)
-            {
-                sprite.PatternLow = 0;
-                sprite.PatternHigh = 0;
-                continue;
-            }
-
-            var (low, high) = FetchSpritePattern(sprite.TileIndex, sprite.Attributes, row);
-            sprite.PatternLow = low;
-            sprite.PatternHigh = high;
+            return;
         }
+
+        var slotPhase = (_cycle - 257) & 0x07;
+        switch (slotPhase)
+        {
+            case 0:
+            case 2:
+                ReadPpu(GetSpriteGarbageFetchAddress());
+                break;
+            case 4:
+                FetchSpritePatternByte(slot, prerenderScanline, highPlane: false);
+                break;
+            case 6:
+                FetchSpritePatternByte(slot, prerenderScanline, highPlane: true);
+                break;
+        }
+    }
+
+    private ushort GetSpriteGarbageFetchAddress()
+    {
+        // The first garbage fetch at dot 257 is a bus-mixed address on hardware.
+        // Using the upcoming scanline's first nametable fetch keeps mapper-visible
+        // accesses close to real hardware without overfitting to a half-dot model.
+        return (ushort)(0x2000 | (_vramAddress & 0x0FFF));
+    }
+
+    private void FetchSpritePatternByte(int slot, bool prerenderScanline, bool highPlane)
+    {
+        var address = GetSpritePatternFetchAddress(slot, prerenderScanline);
+        var value = ReadPpu(highPlane ? (ushort)(address + 8) : address);
+
+        if (prerenderScanline || slot >= _nextSpriteCount)
+        {
+            return;
+        }
+
+        ref var sprite = ref _nextSprites[slot];
+        if ((sprite.Attributes & 0x40) != 0)
+        {
+            value = ReverseBits(value);
+        }
+
+        if (highPlane)
+        {
+            sprite.PatternHigh = value;
+        }
+        else
+        {
+            sprite.PatternLow = value;
+        }
+    }
+
+    private ushort GetSpritePatternFetchAddress(int slot, bool prerenderScanline)
+    {
+        if (!prerenderScanline && slot < _nextSpriteCount)
+        {
+            ref var sprite = ref _nextSprites[slot];
+            var targetScanline = _scanline + 1;
+            var row = (targetScanline - sprite.YPosition - 1) & 0xFF;
+            return GetSpritePatternAddress(sprite.TileIndex, sprite.Attributes, row);
+        }
+
+        return GetSpritePatternAddress(0xFF, 0xFF, 0);
     }
 
     private void PromoteNextSprites(bool preserveNextSprites = false)
@@ -830,10 +894,9 @@ public sealed class Ppu2C02
         }
     }
 
-    private (byte Low, byte High) FetchSpritePattern(byte tileIndex, byte attributes, int row)
+    private ushort GetSpritePatternAddress(byte tileIndex, byte attributes, int row)
     {
         var flipVertical = (attributes & 0x80) != 0;
-        var flipHorizontal = (attributes & 0x40) != 0;
         var effectiveRow = flipVertical ? SpriteHeight - 1 - row : row;
 
         ushort address;
@@ -854,6 +917,13 @@ public sealed class Ppu2C02
             address = (ushort)(SpritePatternBase + tileIndex * 16 + effectiveRow);
         }
 
+        return address;
+    }
+
+    private (byte Low, byte High) FetchSpritePattern(byte tileIndex, byte attributes, int row)
+    {
+        var flipHorizontal = (attributes & 0x40) != 0;
+        var address = GetSpritePatternAddress(tileIndex, attributes, row);
         var low = ReadPpu(address);
         var high = ReadPpu((ushort)(address + 8));
 
