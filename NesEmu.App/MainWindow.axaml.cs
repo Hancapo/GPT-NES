@@ -54,6 +54,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private WindowState _windowedStateBeforeFullscreen = WindowState.Normal;
     private string _statusMessage = "Ready.";
     private bool _isClosing;
+    private bool _startupCompleted;
     private bool _suppressFooterVolumeEvents = true;
 
     public MainWindow()
@@ -81,6 +82,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         Activated += (_, _) => CaptureGameInput();
         Deactivated += (_, _) => _inputState.Clear();
 
+        _startupCompleted = true;
         ClearViewport();
         ApplyVideoRenderer();
         UpdateFullscreenPresentation();
@@ -449,7 +451,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void RefreshViewModel()
     {
-        if (_isClosing)
+        if (_isClosing || !_startupCompleted)
         {
             return;
         }

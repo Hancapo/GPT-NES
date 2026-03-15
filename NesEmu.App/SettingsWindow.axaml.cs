@@ -149,11 +149,6 @@ public partial class SettingsWindow : ShadWindow
         TriangleProgramComboBox.ItemsSource = MidiCatalog.Programs;
         NoiseDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
         DmcDrumComboBox.ItemsSource = MidiCatalog.PercussionNotes;
-        Pulse1RoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
-        Pulse2RoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
-        TriangleRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
-        NoiseRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
-        DmcRoleComboBox.ItemsSource = MidiCatalog.SourceRoles;
     }
 
     private void LoadSettingsFromServices()
@@ -251,7 +246,6 @@ public partial class SettingsWindow : ShadWindow
         OutputDeviceComboBox.ItemsSource = devices;
 
         EnableMidiCheckBox.IsChecked = settings.Enabled;
-        MusicOnlyCheckBox.IsChecked = settings.MusicOnlyFilter;
         PercussionCheckBox.IsChecked = settings.SendPercussion;
 
         Pulse1EnabledCheckBox.IsChecked = settings.Pulse1Enabled;
@@ -273,11 +267,6 @@ public partial class SettingsWindow : ShadWindow
         TriangleProgramComboBox.SelectedItem = MidiCatalog.Programs.FirstOrDefault(program => program.ProgramNumber == settings.TriangleProgram) ?? MidiCatalog.Programs.First();
         NoiseDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.NoiseDrumNote) ?? MidiCatalog.PercussionNotes.First();
         DmcDrumComboBox.SelectedItem = MidiCatalog.PercussionNotes.FirstOrDefault(note => note.NoteNumber == settings.DmcDrumNote) ?? MidiCatalog.PercussionNotes.First();
-        Pulse1RoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.Pulse1Role) ?? MidiCatalog.SourceRoles.First();
-        Pulse2RoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.Pulse2Role) ?? MidiCatalog.SourceRoles.First();
-        TriangleRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.TriangleRole) ?? MidiCatalog.SourceRoles.First();
-        NoiseRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.NoiseRole) ?? MidiCatalog.SourceRoles.First();
-        DmcRoleComboBox.SelectedItem = MidiCatalog.SourceRoles.FirstOrDefault(option => option.Role == settings.DmcRole) ?? MidiCatalog.SourceRoles.First();
 
         UpdateMidiLabels();
     }
@@ -939,33 +928,28 @@ public partial class SettingsWindow : ShadWindow
             return;
         }
 
+        var currentSettings = _midiOutput.GetSettingsSnapshot();
         var settings = new MidiOutputSettings
         {
             Enabled = EnableMidiCheckBox.IsChecked == true,
-            DeviceIndex = (OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo)?.DeviceIndex ?? -1,
-            MusicOnlyFilter = MusicOnlyCheckBox.IsChecked != false,
+            DeviceIndex = (OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo)?.DeviceIndex ?? currentSettings.DeviceIndex,
             SendPercussion = PercussionCheckBox.IsChecked != false,
             Pulse1Enabled = Pulse1EnabledCheckBox.IsChecked != false,
             Pulse2Enabled = Pulse2EnabledCheckBox.IsChecked != false,
             TriangleEnabled = TriangleEnabledCheckBox.IsChecked != false,
             NoiseEnabled = NoiseEnabledCheckBox.IsChecked != false,
             DmcEnabled = DmcEnabledCheckBox.IsChecked != false,
-            Pulse1Program = (Pulse1ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 80,
-            Pulse2Program = (Pulse2ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 81,
-            TriangleProgram = (TriangleProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? 33,
+            Pulse1Program = (Pulse1ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? currentSettings.Pulse1Program,
+            Pulse2Program = (Pulse2ProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? currentSettings.Pulse2Program,
+            TriangleProgram = (TriangleProgramComboBox.SelectedItem as MidiProgramOption)?.ProgramNumber ?? currentSettings.TriangleProgram,
             Pulse1VolumePercent = ReadPercent(Pulse1VolumeSlider),
             Pulse2VolumePercent = ReadPercent(Pulse2VolumeSlider),
             TriangleVolumePercent = ReadPercent(TriangleVolumeSlider),
             NoiseVolumePercent = ReadPercent(NoiseVolumeSlider),
             DmcVolumePercent = ReadPercent(DmcVolumeSlider),
-            NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? -1,
-            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider),
-            Pulse1Role = (Pulse1RoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
-            Pulse2Role = (Pulse2RoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
-            TriangleRole = (TriangleRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
-            NoiseRole = (NoiseRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto,
-            DmcRole = (DmcRoleComboBox.SelectedItem as MidiSourceRoleOption)?.Role ?? MidiSourceRole.Auto
+            NoiseDrumNote = (NoiseDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? currentSettings.NoiseDrumNote,
+            DmcDrumNote = (DmcDrumComboBox.SelectedItem as MidiPercussionOption)?.NoteNumber ?? currentSettings.DmcDrumNote,
+            MidiSyncOffsetMilliseconds = ReadOffset(MidiSyncOffsetSlider)
         };
 
         if (_midiOutput.TryApplySettings(settings, out var error))
@@ -1161,7 +1145,6 @@ public partial class SettingsWindow : ShadWindow
         if (isActive)
         {
             _controllerBindingCaptureTimer.Start();
-            _midiDeviceRefreshTimer.Start();
         }
         else
         {
@@ -1209,6 +1192,7 @@ public partial class SettingsWindow : ShadWindow
         UpdateKeyboardCaptureText();
         CancelControllerBindingCapture();
     }
+
 
     private void CancelControllerBindingCapture()
     {

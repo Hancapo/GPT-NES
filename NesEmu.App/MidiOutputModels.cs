@@ -1,20 +1,10 @@
 namespace NesEmu.App;
 
-public enum MidiSourceRole
-{
-    Auto,
-    Music,
-    SoundEffect,
-    Ignore
-}
-
 public sealed class MidiOutputSettings
 {
     public bool Enabled { get; set; }
 
     public int DeviceIndex { get; set; } = -1;
-
-    public bool MusicOnlyFilter { get; set; } = true;
 
     public bool SendPercussion { get; set; } = true;
 
@@ -50,17 +40,31 @@ public sealed class MidiOutputSettings
 
     public int MidiSyncOffsetMilliseconds { get; set; }
 
-    public MidiSourceRole Pulse1Role { get; set; } = MidiSourceRole.Auto;
-
-    public MidiSourceRole Pulse2Role { get; set; } = MidiSourceRole.Auto;
-
-    public MidiSourceRole TriangleRole { get; set; } = MidiSourceRole.Auto;
-
-    public MidiSourceRole NoiseRole { get; set; } = MidiSourceRole.Auto;
-
-    public MidiSourceRole DmcRole { get; set; } = MidiSourceRole.Auto;
-
     public static MidiOutputSettings CreateDefault() => new();
+
+    public bool IsEquivalentTo(MidiOutputSettings? other)
+    {
+        return other is not null
+            && Enabled == other.Enabled
+            && DeviceIndex == other.DeviceIndex
+            && SendPercussion == other.SendPercussion
+            && Pulse1Enabled == other.Pulse1Enabled
+            && Pulse2Enabled == other.Pulse2Enabled
+            && TriangleEnabled == other.TriangleEnabled
+            && NoiseEnabled == other.NoiseEnabled
+            && DmcEnabled == other.DmcEnabled
+            && Pulse1Program == other.Pulse1Program
+            && Pulse2Program == other.Pulse2Program
+            && TriangleProgram == other.TriangleProgram
+            && Pulse1VolumePercent == other.Pulse1VolumePercent
+            && Pulse2VolumePercent == other.Pulse2VolumePercent
+            && TriangleVolumePercent == other.TriangleVolumePercent
+            && NoiseVolumePercent == other.NoiseVolumePercent
+            && DmcVolumePercent == other.DmcVolumePercent
+            && NoiseDrumNote == other.NoiseDrumNote
+            && DmcDrumNote == other.DmcDrumNote
+            && MidiSyncOffsetMilliseconds == other.MidiSyncOffsetMilliseconds;
+    }
 
     public MidiOutputSettings Clone()
     {
@@ -68,7 +72,6 @@ public sealed class MidiOutputSettings
         {
             Enabled = Enabled,
             DeviceIndex = DeviceIndex,
-            MusicOnlyFilter = MusicOnlyFilter,
             SendPercussion = SendPercussion,
             Pulse1Enabled = Pulse1Enabled,
             Pulse2Enabled = Pulse2Enabled,
@@ -85,12 +88,7 @@ public sealed class MidiOutputSettings
             DmcVolumePercent = DmcVolumePercent,
             NoiseDrumNote = NoiseDrumNote,
             DmcDrumNote = DmcDrumNote,
-            MidiSyncOffsetMilliseconds = MidiSyncOffsetMilliseconds,
-            Pulse1Role = Pulse1Role,
-            Pulse2Role = Pulse2Role,
-            TriangleRole = TriangleRole,
-            NoiseRole = NoiseRole,
-            DmcRole = DmcRole
+            MidiSyncOffsetMilliseconds = MidiSyncOffsetMilliseconds
         };
     }
 }
@@ -106,11 +104,6 @@ public sealed record MidiProgramOption(int ProgramNumber, string DisplayName)
 }
 
 public sealed record MidiPercussionOption(int NoteNumber, string DisplayName)
-{
-    public override string ToString() => DisplayName;
-}
-
-public sealed record MidiSourceRoleOption(MidiSourceRole Role, string DisplayName, string Description)
 {
     public override string ToString() => DisplayName;
 }
@@ -134,26 +127,6 @@ public static class MidiCatalog
         new MidiPercussionOption(45, "Low Tom"),
         new MidiPercussionOption(46, "Open Hi-Hat"),
         new MidiPercussionOption(49, "Crash Cymbal 1")
-    ];
-
-    public static IReadOnlyList<MidiSourceRoleOption> SourceRoles { get; } =
-    [
-        new MidiSourceRoleOption(
-            MidiSourceRole.Auto,
-            "Auto",
-            "Use the default heuristic for this source."),
-        new MidiSourceRoleOption(
-            MidiSourceRole.Music,
-            "Prefer music",
-            "Bias the filter to keep this source when it looks musical."),
-        new MidiSourceRoleOption(
-            MidiSourceRole.SoundEffect,
-            "Prefer SFX",
-            "Bias the filter to be more conservative with short or abrupt events from this source."),
-        new MidiSourceRoleOption(
-            MidiSourceRole.Ignore,
-            "Ignore",
-            "Do not convert this source to MIDI output.")
     ];
 
     private static IReadOnlyList<MidiProgramOption> BuildProgramOptions()
@@ -269,7 +242,7 @@ public static class MidiCatalog
             "106 Shamisen",
             "107 Koto",
             "108 Kalimba",
-            "109 Bagpipe",
+            "109 Bag pipe",
             "110 Fiddle",
             "111 Shanai",
             "112 Tinkle Bell",
@@ -290,12 +263,8 @@ public static class MidiCatalog
             "127 Gunshot"
         ];
 
-        var result = new List<MidiProgramOption>(names.Length);
-        for (var i = 0; i < names.Length; i++)
-        {
-            result.Add(new MidiProgramOption(i, names[i]));
-        }
-
-        return result;
+        return names
+            .Select((name, index) => new MidiProgramOption(index, name))
+            .ToArray();
     }
 }

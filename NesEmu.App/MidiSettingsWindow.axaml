@@ -69,7 +69,7 @@
                       Content="Enable real-time MIDI output" />
 
             <Grid ColumnDefinitions="170,*"
-                  RowDefinitions="Auto,Auto,Auto,Auto,Auto"
+                  RowDefinitions="Auto,Auto,Auto,Auto"
                   ColumnSpacing="12"
                   RowSpacing="12">
               <TextBlock Grid.Row="0" VerticalAlignment="Center" Text="Device" />
@@ -83,12 +83,7 @@
                          Classes="help"
                          Text="When enabled, your keyboard or MIDI module will receive the game's music in real time." />
 
-              <CheckBox x:Name="MusicOnlyCheckBox"
-                        Grid.Row="2"
-                        Grid.ColumnSpan="2"
-                        Content="Try to filter short sound effects and keep only the music" />
-
-              <Grid Grid.Row="3"
+              <Grid Grid.Row="2"
                     Grid.ColumnSpan="2"
                     ColumnDefinitions="170,Auto,Auto"
                     ColumnSpacing="12">
@@ -103,7 +98,7 @@
                            VerticalAlignment="Center"
                            TextAlignment="Right" />
               </Grid>
-              <TextBlock Grid.Row="4"
+              <TextBlock Grid.Row="3"
                          Grid.ColumnSpan="2"
                          Classes="help"
                          Text="Negative values send MIDI earlier. Positive values delay MIDI further." />
@@ -237,7 +232,7 @@
               <TextBlock Grid.Row="2"
                          Grid.ColumnSpan="3"
                          Classes="help"
-                         Text="Music and SFX separation is heuristic. It is tuned to prioritize stable melodic lines and in-song percussion." />
+                         Text="Noise and DMC stay on MIDI channel 10, with either automatic drum mapping or the note you choose." />
             </Grid>
           </StackPanel>
         </Border>

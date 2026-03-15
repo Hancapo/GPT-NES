@@ -13,14 +13,8 @@ public sealed class MidiOutputService : IDisposable
     private const int PitchBendCenter = 8192;
     private const int PitchBendRangeSemitones = 2;
     private const int StableNoteFrames = 1;
-    private const int AutoSourceStableFrames = 2;
-    private const int LargeJumpStableFrames = 2;
-    private const int NoteOffGraceFrames = 1;
+    private const int SameNoteRetriggerExpressionRise = 8;
     private const int PercussionReleaseFrames = 2;
-    private const int RecentMusicWindowFrames = 30;
-    private const int AutoMusicEvidenceNoteFrames = 2;
-    private const int AutoMusicEvidenceAudibleFrames = 3;
-    private const int SoundEffectBiasWindowFrames = 10;
     private static readonly TimeSpan FrameLeadCompensation = TimeSpan.FromMilliseconds(8);
     private static readonly TimeSpan MaximumMidiSyncDelay = TimeSpan.FromMilliseconds(80);
 
@@ -32,7 +26,7 @@ public sealed class MidiOutputService : IDisposable
     private readonly PercussionTracker _noiseTracker = new();
     private readonly PercussionTracker _dmcTracker = new();
     private readonly List<ActivePercussionHit> _activePercussionHits = [];
-    private readonly PriorityQueue<ScheduledMidiMessage, long> _scheduledMessages = new();
+    private readonly PriorityQueue<ScheduledMidiMessage, (long DueTicks, long SequenceNumber)> _scheduledMessages = new();
     private readonly AutoResetEvent _dispatchSignal = new(false);
     private readonly CancellationTokenSource _dispatchCancellation = new();
     private readonly Stopwatch _schedulerClock = Stopwatch.StartNew();
@@ -40,7 +34,7 @@ public sealed class MidiOutputService : IDisposable
 
     private MidiOutputSettings _settings = MidiOutputSettings.CreateDefault();
     private IMidiOutputPort? _midiOut;
-    private int _framesSinceMusicEvidence = int.MaxValue;
+    private long _scheduledMessageSequence;
     private TimeSpan _presentationLatency = TimeSpan.Zero;
     private TimeSpan _performanceSendDelay = TimeSpan.Zero;
     private bool _disposed;
@@ -98,7 +92,15 @@ public sealed class MidiOutputService : IDisposable
         lock (_sync)
         {
             error = null;
-            AppLogger.Info($"Applying MIDI settings. Enabled={settings.Enabled}, DeviceIndex={settings.DeviceIndex}, MusicOnlyFilter={settings.MusicOnlyFilter}, SendPercussion={settings.SendPercussion}");
+
+            if (settings.IsEquivalentTo(_settings)
+                && (!_settings.Enabled || _midiOut is not null))
+            {
+                AppLogger.Info($"Skipping MIDI reapply because settings are unchanged. Enabled={settings.Enabled}, DeviceIndex={settings.DeviceIndex}");
+                return true;
+            }
+
+            AppLogger.Info($"Applying MIDI settings. Enabled={settings.Enabled}, DeviceIndex={settings.DeviceIndex}, SendPercussion={settings.SendPercussion}");
 
             SilenceLocked();
             CloseDeviceLocked();
@@ -163,18 +165,11 @@ public sealed class MidiOutputService : IDisposable
             _performanceSendDelay = CalculatePerformanceSendDelayLocked();
             try
             {
-                var musicEvidence =
-                    ProcessPulseVoiceLocked(_pulse1Tracker, snapshot.Pulse1, _settings.Pulse1Enabled, _settings.Pulse1VolumePercent, _settings.Pulse1Role) |
-                    ProcessPulseVoiceLocked(_pulse2Tracker, snapshot.Pulse2, _settings.Pulse2Enabled, _settings.Pulse2VolumePercent, _settings.Pulse2Role) |
-                    ProcessTriangleVoiceLocked(_triangleTracker, snapshot.Triangle, _settings.TriangleEnabled, _settings.TriangleRole);
-
-                musicEvidence |= IsTaggedMusicPercussionActive(snapshot.Noise, _settings.NoiseEnabled, _settings.NoiseRole);
-                musicEvidence |= IsTaggedMusicPercussionActive(snapshot.Dmc, _settings.DmcEnabled, _settings.DmcRole);
-
-                UpdateMusicEvidenceLocked(musicEvidence);
-
-                ProcessNoisePercussionLocked(snapshot.Noise, _settings.NoiseEnabled, _settings.NoiseRole);
-                ProcessDmcPercussionLocked(snapshot.Dmc, _settings.DmcEnabled, _settings.DmcRole);
+                ProcessPulseVoiceLocked(_pulse1Tracker, snapshot.Pulse1, _settings.Pulse1Enabled, _settings.Pulse1VolumePercent);
+                ProcessPulseVoiceLocked(_pulse2Tracker, snapshot.Pulse2, _settings.Pulse2Enabled, _settings.Pulse2VolumePercent);
+                ProcessTriangleVoiceLocked(_triangleTracker, snapshot.Triangle, _settings.TriangleEnabled);
+                ProcessNoisePercussionLocked(snapshot.Noise, _settings.NoiseEnabled);
+                ProcessDmcPercussionLocked(snapshot.Dmc, _settings.DmcEnabled);
                 AdvancePercussionLocked();
             }
             finally
@@ -228,7 +223,7 @@ public sealed class MidiOutputService : IDisposable
         }
     }
 
-    private bool ProcessPulseVoiceLocked(MelodicTracker tracker, PulseTapSnapshot voice, bool enabled, int levelPercent, MidiSourceRole role)
+    private void ProcessPulseVoiceLocked(MelodicTracker tracker, PulseTapSnapshot voice, bool enabled, int levelPercent)
     {
         var frequency = voice.Audible
             ? NesConsole.CpuFrequency / (16.0 * (voice.TimerPeriod + 1))
@@ -238,8 +233,7 @@ public sealed class MidiOutputService : IDisposable
         var expression = ScaleByPercent(baseVelocity, levelPercent);
         var audible = enabled
             && levelPercent > 0
-            && voice.Audible
-            && !ShouldIgnoreRole(role);
+            && voice.Audible;
 
         ProcessMelodicVoiceLocked(
             tracker,
@@ -247,13 +241,10 @@ public sealed class MidiOutputService : IDisposable
             frequency,
             noteVelocity,
             expression,
-            voice.TriggerVersion,
-            role);
-
-        return CountsAsMusic(role, tracker, audible);
+            voice.TriggerVersion);
     }
 
-    private bool ProcessTriangleVoiceLocked(MelodicTracker tracker, TriangleTapSnapshot voice, bool enabled, MidiSourceRole role)
+    private void ProcessTriangleVoiceLocked(MelodicTracker tracker, TriangleTapSnapshot voice, bool enabled)
     {
         var levelPercent = _settings.TriangleVolumePercent;
         var frequency = voice.Audible
@@ -264,8 +255,7 @@ public sealed class MidiOutputService : IDisposable
         var expression = ScaleByPercent(baseVelocity, levelPercent);
         var audible = enabled
             && levelPercent > 0
-            && voice.Audible
-            && !ShouldIgnoreRole(role);
+            && voice.Audible;
 
         ProcessMelodicVoiceLocked(
             tracker,
@@ -273,10 +263,7 @@ public sealed class MidiOutputService : IDisposable
             frequency,
             noteVelocity,
             expression,
-            voice.TriggerVersion,
-            role);
-
-        return CountsAsMusic(role, tracker, audible);
+            voice.TriggerVersion);
     }
 
     private void ProcessMelodicVoiceLocked(
@@ -285,42 +272,48 @@ public sealed class MidiOutputService : IDisposable
         double frequency,
         int noteVelocity,
         int expression,
-        int triggerVersion,
-        MidiSourceRole role)
+        int triggerVersion)
     {
         if (!audible || frequency <= 0.0)
         {
             tracker.Candidate = null;
-            tracker.AudibleFrames = 0;
 
             if (!tracker.IsNoteOn)
             {
                 tracker.NoteOnFrames = 0;
+                tracker.LastObservedTriggerVersion = triggerVersion;
                 return;
             }
 
-            tracker.SilentFrames++;
-            tracker.NoteOnFrames = 0;
-            if (!_settings.MusicOnlyFilter || tracker.SilentFrames >= NoteOffGraceFrames)
-            {
-                StopNoteLocked(tracker);
-            }
-
+            StopNoteLocked(tracker);
+            tracker.LastObservedTriggerVersion = triggerVersion;
             return;
         }
 
-        tracker.SilentFrames = 0;
-        tracker.AudibleFrames++;
-
         var target = CreatePitchTarget(frequency, expression);
+        var triggerChanged = triggerVersion != 0 && triggerVersion != tracker.LastObservedTriggerVersion;
         if (tracker.IsNoteOn && tracker.CurrentNote == target.NoteNumber)
         {
             tracker.Candidate = null;
-            SendPitchBendLocked(tracker.Channel, target.PitchBend);
-            SendExpressionLocked(tracker.Channel, target.Expression);
+            var shouldRetrigger = triggerChanged
+                && target.Expression >= tracker.CurrentExpression + SameNoteRetriggerExpressionRise;
+            if (shouldRetrigger)
+            {
+                SendNoteOffLocked(tracker.Channel, tracker.CurrentNote);
+                SendPitchBendLocked(tracker.Channel, target.PitchBend);
+                SendNoteOnLocked(tracker.Channel, target.NoteNumber, noteVelocity);
+                SendExpressionLocked(tracker.Channel, target.Expression);
+                tracker.NoteOnFrames = 1;
+            }
+            else
+            {
+                SendPitchBendLocked(tracker.Channel, target.PitchBend);
+                SendExpressionLocked(tracker.Channel, target.Expression);
+                tracker.NoteOnFrames = Math.Max(tracker.NoteOnFrames + 1, 1);
+            }
+
             tracker.CurrentPitchBend = target.PitchBend;
             tracker.CurrentExpression = target.Expression;
-            tracker.NoteOnFrames = Math.Max(tracker.NoteOnFrames + 1, 1);
             tracker.LastObservedTriggerVersion = triggerVersion;
             return;
         }
@@ -337,8 +330,7 @@ public sealed class MidiOutputService : IDisposable
 
         tracker.LastObservedTriggerVersion = triggerVersion;
 
-        var requiredFrames = GetRequiredStableFramesLocked(tracker, role);
-        if (tracker.Candidate.StableFrames < requiredFrames)
+        if (tracker.Candidate.StableFrames < StableNoteFrames)
         {
             tracker.NoteOnFrames = 0;
             return;
@@ -361,9 +353,9 @@ public sealed class MidiOutputService : IDisposable
         tracker.Candidate = null;
     }
 
-    private void ProcessNoisePercussionLocked(NoiseTapSnapshot snapshot, bool enabled, MidiSourceRole role)
+    private void ProcessNoisePercussionLocked(NoiseTapSnapshot snapshot, bool enabled)
     {
-        if (!ShouldProcessNoisePercussion(snapshot, enabled, role))
+        if (!ShouldProcessNoisePercussion(snapshot, enabled))
         {
             _noiseTracker.LastTriggerVersion = snapshot.TriggerVersion;
             return;
@@ -384,9 +376,9 @@ public sealed class MidiOutputService : IDisposable
         TriggerPercussionLocked(ResolveNoiseDrumNote(snapshot), velocity);
     }
 
-    private void ProcessDmcPercussionLocked(DmcTapSnapshot snapshot, bool enabled, MidiSourceRole role)
+    private void ProcessDmcPercussionLocked(DmcTapSnapshot snapshot, bool enabled)
     {
-        if (!ShouldProcessDmcPercussion(snapshot, enabled, role))
+        if (!ShouldProcessDmcPercussion(snapshot, enabled))
         {
             _dmcTracker.LastTriggerVersion = snapshot.TriggerVersion;
             return;
@@ -408,49 +400,18 @@ public sealed class MidiOutputService : IDisposable
         TriggerPercussionLocked(ResolveDmcDrumNote(snapshot), velocity);
     }
 
-    private bool ShouldProcessNoisePercussion(NoiseTapSnapshot snapshot, bool enabled, MidiSourceRole role)
+    private bool ShouldProcessNoisePercussion(NoiseTapSnapshot snapshot, bool enabled)
     {
         return enabled
             && _settings.SendPercussion
-            && snapshot.Enabled
-            && snapshot.Audible
-            && ShouldAllowPercussionByRole(role);
-    }
-
-    private bool ShouldProcessDmcPercussion(DmcTapSnapshot snapshot, bool enabled, MidiSourceRole role)
-    {
-        return enabled
-            && _settings.SendPercussion
-            && snapshot.Active
-            && ShouldAllowPercussionByRole(role);
-    }
-
-    private bool ShouldAllowPercussionByRole(MidiSourceRole role)
-    {
-        return role switch
-        {
-            MidiSourceRole.Ignore => false,
-            MidiSourceRole.Music => true,
-            MidiSourceRole.SoundEffect => !_settings.MusicOnlyFilter || _framesSinceMusicEvidence < SoundEffectBiasWindowFrames,
-            MidiSourceRole.Auto => !_settings.MusicOnlyFilter || _framesSinceMusicEvidence < RecentMusicWindowFrames,
-            _ => false
-        };
-    }
-
-    private bool IsTaggedMusicPercussionActive(NoiseTapSnapshot snapshot, bool enabled, MidiSourceRole role)
-    {
-        return enabled
-            && _settings.SendPercussion
-            && role == MidiSourceRole.Music
             && snapshot.Enabled
             && snapshot.Audible;
     }
 
-    private bool IsTaggedMusicPercussionActive(DmcTapSnapshot snapshot, bool enabled, MidiSourceRole role)
+    private bool ShouldProcessDmcPercussion(DmcTapSnapshot snapshot, bool enabled)
     {
         return enabled
             && _settings.SendPercussion
-            && role == MidiSourceRole.Music
             && snapshot.Active;
     }
 
@@ -590,7 +551,6 @@ public sealed class MidiOutputService : IDisposable
         tracker.CurrentNote = -1;
         tracker.CurrentPitchBend = PitchBendCenter;
         tracker.CurrentExpression = 0;
-        tracker.SilentFrames = 0;
         tracker.NoteOnFrames = 0;
         tracker.Candidate = null;
     }
@@ -650,7 +610,6 @@ public sealed class MidiOutputService : IDisposable
         _noiseTracker.LastTriggerVersion = 0;
         _dmcTracker.LastTriggerVersion = 0;
         _activePercussionHits.Clear();
-        _framesSinceMusicEvidence = int.MaxValue;
     }
 
     private void CloseDeviceLocked()
@@ -686,7 +645,7 @@ public sealed class MidiOutputService : IDisposable
         }
 
         var dueTicks = _schedulerClock.ElapsedTicks + (long)(_performanceSendDelay.TotalSeconds * Stopwatch.Frequency);
-        _scheduledMessages.Enqueue(message, dueTicks);
+        _scheduledMessages.Enqueue(message, (dueTicks, _scheduledMessageSequence++));
         _dispatchSignal.Set();
     }
 
@@ -747,7 +706,7 @@ public sealed class MidiOutputService : IDisposable
                 }
 
                 var nowTicks = _schedulerClock.ElapsedTicks;
-                if (!_scheduledMessages.TryPeek(out var nextMessage, out var dueTicks) || dueTicks > nowTicks)
+                if (!_scheduledMessages.TryPeek(out var nextMessage, out var duePriority) || duePriority.DueTicks > nowTicks)
                 {
                     return;
                 }
@@ -768,12 +727,12 @@ public sealed class MidiOutputService : IDisposable
             }
 
             var nowTicks = _schedulerClock.ElapsedTicks;
-            if (!_scheduledMessages.TryPeek(out _, out var dueTicks))
+            if (!_scheduledMessages.TryPeek(out _, out var duePriority))
             {
                 return 8;
             }
 
-            var ticksUntilDue = dueTicks - nowTicks;
+            var ticksUntilDue = duePriority.DueTicks - nowTicks;
             if (ticksUntilDue <= 0)
             {
                 return 0;
@@ -853,78 +812,6 @@ public sealed class MidiOutputService : IDisposable
         return new PitchTarget(clampedNote, Math.Clamp(pitchBend, 0, 16_383), Math.Clamp(expression, 1, 127));
     }
 
-    private static bool CountsAsMusic(MidiSourceRole role, MelodicTracker tracker, bool audible)
-    {
-        if (!audible)
-        {
-            return false;
-        }
-
-        return role switch
-        {
-            MidiSourceRole.Music => true,
-            MidiSourceRole.Auto => tracker.IsNoteOn
-                && (tracker.NoteOnFrames >= AutoMusicEvidenceNoteFrames
-                    || tracker.AudibleFrames >= AutoMusicEvidenceAudibleFrames),
-            _ => false
-        };
-    }
-
-    private static bool ShouldIgnoreRole(MidiSourceRole role)
-    {
-        return role == MidiSourceRole.Ignore;
-    }
-
-    private int GetRequiredStableFramesLocked(MelodicTracker tracker, MidiSourceRole role)
-    {
-        if (!_settings.MusicOnlyFilter)
-        {
-            return StableNoteFrames;
-        }
-
-        if (role == MidiSourceRole.Music)
-        {
-            return StableNoteFrames;
-        }
-
-        if (role == MidiSourceRole.SoundEffect)
-        {
-            if (!tracker.IsNoteOn)
-            {
-                return AutoSourceStableFrames;
-            }
-
-            if (tracker.CurrentNote >= 0 && tracker.Candidate is not null && Math.Abs(tracker.Candidate.NoteNumber - tracker.CurrentNote) >= 7)
-            {
-                return LargeJumpStableFrames;
-            }
-
-            return AutoSourceStableFrames;
-        }
-
-        if (role == MidiSourceRole.Auto)
-        {
-            if (!tracker.IsNoteOn)
-            {
-                return AutoSourceStableFrames;
-            }
-
-            if (tracker.CurrentNote >= 0 && tracker.Candidate is not null && Math.Abs(tracker.Candidate.NoteNumber - tracker.CurrentNote) >= 7)
-            {
-                return LargeJumpStableFrames;
-            }
-        }
-
-        return StableNoteFrames;
-    }
-
-    private void UpdateMusicEvidenceLocked(bool musicEvidence)
-    {
-        _framesSinceMusicEvidence = musicEvidence
-            ? 0
-            : Math.Min(_framesSinceMusicEvidence + 1, RecentMusicWindowFrames + 1);
-    }
-
     private string ResolveDeviceName(int deviceIndex)
     {
         return GetDevices().FirstOrDefault(device => device.DeviceIndex == deviceIndex)?.DisplayName ?? "Unknown device";
@@ -948,10 +835,6 @@ public sealed class MidiOutputService : IDisposable
 
         public int CurrentExpression { get; set; }
 
-        public int SilentFrames { get; set; }
-
-        public int AudibleFrames { get; set; }
-
         public int NoteOnFrames { get; set; }
 
         public int LastObservedTriggerVersion { get; set; }
@@ -964,8 +847,6 @@ public sealed class MidiOutputService : IDisposable
             CurrentNote = -1;
             CurrentPitchBend = PitchBendCenter;
             CurrentExpression = 0;
-            SilentFrames = 0;
-            AudibleFrames = 0;
             NoteOnFrames = 0;
             LastObservedTriggerVersion = 0;
             Candidate = null;

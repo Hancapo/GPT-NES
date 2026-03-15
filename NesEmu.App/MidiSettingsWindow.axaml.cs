@@ -39,7 +39,6 @@ public partial class MidiSettingsWindow : Window
     private void LoadSettings(MidiOutputSettings settings)
     {
         EnableMidiCheckBox.IsChecked = settings.Enabled;
-        MusicOnlyCheckBox.IsChecked = settings.MusicOnlyFilter;
         PercussionCheckBox.IsChecked = settings.SendPercussion;
 
         Pulse1EnabledCheckBox.IsChecked = settings.Pulse1Enabled;
@@ -69,7 +68,6 @@ public partial class MidiSettingsWindow : Window
         var settings = _originalSettings.Clone();
         settings.Enabled = EnableMidiCheckBox.IsChecked == true;
         settings.DeviceIndex = (OutputDeviceComboBox.SelectedItem as MidiOutputDeviceInfo)?.DeviceIndex ?? -1;
-        settings.MusicOnlyFilter = MusicOnlyCheckBox.IsChecked != false;
         settings.SendPercussion = PercussionCheckBox.IsChecked != false;
         settings.Pulse1Enabled = Pulse1EnabledCheckBox.IsChecked != false;
         settings.Pulse2Enabled = Pulse2EnabledCheckBox.IsChecked != false;
