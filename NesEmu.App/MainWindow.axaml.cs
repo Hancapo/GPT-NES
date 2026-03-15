@@ -41,6 +41,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private readonly uint[] _openGlUploadScratch = new uint[NesVideoConstants.PixelsPerFrame];
     private readonly int[] _pixelScratch = new int[NesVideoConstants.PixelsPerFrame];
     private readonly Stopwatch _fpsStopwatch = Stopwatch.StartNew();
+    private readonly MainWindowViewModel _viewModel;
     private VideoOutputSettings _videoSettings = VideoOutputSettings.CreateDefault();
 
     private SettingsWindow? _settingsWindow;
@@ -51,11 +52,15 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
     private int _fpsFrameCount;
     private double _lastFps;
     private WindowState _windowedStateBeforeFullscreen = WindowState.Normal;
+    private string _statusMessage = "Ready.";
+    private bool _isClosing;
     private bool _suppressFooterVolumeEvents = true;
 
     public MainWindow()
     {
+        _viewModel = new MainWindowViewModel(ApplicationVersionText, OperatingSystemText);
         InitializeComponent();
+        DataContext = _viewModel;
         AppLogger.Info("Main window created.");
 
         _bitmap = new WriteableBitmap(
@@ -76,7 +81,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         Activated += (_, _) => CaptureGameInput();
         Deactivated += (_, _) => _inputState.Clear();
 
-        SetTransportEnabled(false);
         ClearViewport();
         ApplyVideoRenderer();
         UpdateFullscreenPresentation();
@@ -97,11 +101,8 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void MainWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_settingsWindow is not null)
-        {
-            _settingsWindow.PrepareForShutdown();
-            _settingsWindow.Close();
-        }
+        _isClosing = true;
+        CloseSettingsWindow(prepareForShutdown: true);
 
         OpenGlGameView.RendererFailed -= OpenGlGameView_OnRendererFailed;
         _inputState.Dispose();
@@ -248,8 +249,23 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void SettingsMenuItem_OnClick(object? sender, RoutedEventArgs e)
     {
+        if (_isClosing)
+        {
+            return;
+        }
+
         _inputState.Clear();
-        _settingsWindow ??= new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
+
+        if (_settingsWindow is { IsVisible: true })
+        {
+            _settingsWindow.Activate();
+            return;
+        }
+
+        CloseSettingsWindow(prepareForShutdown: true);
+        _settingsWindow = new SettingsWindow(_emulator, _midiOutput, _inputState, this, SetStatus);
+        _settingsWindow.MasterVolumePreviewChanged += SettingsWindow_OnMasterVolumePreviewChanged;
+        _settingsWindow.Closed += SettingsWindow_OnClosed;
 
         AppLogger.Info($"Opening settings window. {AppLogger.GetProcessResourceSummary()}");
         _settingsWindow.ShowForOwner(this);
@@ -281,14 +297,13 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             _emulator.LoadRom(romPath);
             ResetFpsCounter();
             SetStatus($"Loaded {Path.GetFileName(romPath)}.");
-            SetTransportEnabled(true);
             UpdateUiState();
             CaptureGameInput();
         }
         catch (Exception ex)
         {
+            AppLogger.Error($"Could not load ROM '{romPath}'.", ex);
             SetStatus(ex.Message);
-            SetTransportEnabled(false);
             ClearViewport();
             UpdateUiState();
         }
@@ -296,7 +311,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void OnFrameReady(uint[] frame)
     {
-        if (_emulator.IsStopped)
+        if (_isClosing || _emulator.IsStopped)
         {
             return;
         }
@@ -317,6 +332,12 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void UploadPendingFrame(long epoch)
     {
+        if (_isClosing)
+        {
+            Interlocked.Exchange(ref _uiFrameScheduled, 0);
+            return;
+        }
+
         var renderWithOpenGl = _videoSettings.Renderer == VideoRendererKind.OpenGl;
 
         lock (_frameSync)
@@ -358,11 +379,10 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             _lastFps = _fpsFrameCount / elapsed;
             _fpsFrameCount = 0;
             _fpsStopwatch.Restart();
-            FpsText.Text = $"{_lastFps:0.0} FPS";
+            RefreshViewModel();
         }
 
         GameViewport.InvalidateVisual();
-        OverlayPanel.IsVisible = false;
 
         Interlocked.Exchange(ref _uiFrameScheduled, 0);
 
@@ -380,39 +400,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void UpdateUiState()
     {
-        var hasRom = _emulator.HasRomLoaded;
-        var paused = hasRom && _emulator.IsPaused;
-        var stopped = hasRom && _emulator.IsStopped;
-        var running = hasRom && !paused && !stopped;
-
-        PauseMenuItem.Header = stopped ? "Start" : paused ? "Resume" : "Pause";
-
-        if (!hasRom)
-        {
-            ShowOverlay("NesEmu", "Open a NES ROM to get started.", showOpenButton: true);
-        }
-        else if (stopped)
-        {
-            ShowOverlay("Stopped", "The session is stopped. Press Start to run the ROM again.", showOpenButton: false);
-        }
-        else if (paused)
-        {
-            ShowOverlay("Paused", "The emulation is paused. Press Resume to continue.", showOpenButton: false);
-        }
-        else
-        {
-            OverlayPanel.IsVisible = false;
-        }
-
-        if (!running && !paused)
-        {
-            FpsText.Text = $"{_lastFps:0.0} FPS";
-        }
-
-        SetTransportEnabled(hasRom);
-        StopMenuItem.IsEnabled = hasRom;
-        Title = hasRom ? $"NesEmu - {Path.GetFileName(_emulator.LoadedRomPath)}" : "NesEmu";
-        RefreshFooterDetails();
+        RefreshViewModel();
     }
 
     public VideoOutputSettings GetVideoSettingsSnapshot() => _videoSettings.Clone();
@@ -423,14 +411,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         ApplyVideoRenderer();
         error = null;
         return true;
-    }
-
-    private void ShowOverlay(string title, string body, bool showOpenButton)
-    {
-        OverlayTitleText.Text = title;
-        OverlayBodyText.Text = body;
-        OverlayOpenButton.IsVisible = showOpenButton;
-        OverlayPanel.IsVisible = true;
     }
 
     private void ClearViewport()
@@ -458,48 +438,44 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
         _fpsFrameCount = 0;
         _lastFps = 0;
         _fpsStopwatch.Restart();
-        RefreshFooterDetails();
-    }
-
-    private void SetTransportEnabled(bool enabled)
-    {
-        PauseMenuItem.IsEnabled = enabled;
-        StopMenuItem.IsEnabled = enabled;
-        ResetMenuItem.IsEnabled = enabled;
+        RefreshViewModel();
     }
 
     private void SetStatus(string message)
     {
-        StatusText.Text = message;
-        RefreshFooterDetails();
+        _statusMessage = message;
+        RefreshViewModel();
     }
 
-    private void RefreshFooterDetails()
+    private void RefreshViewModel()
     {
+        if (_isClosing)
+        {
+            return;
+        }
+
         var audioSettings = _emulator.GetAudioSettingsSnapshot();
-        var hasRom = _emulator.HasRomLoaded;
-
-        RomText.Text = hasRom
-            ? Path.GetFileName(_emulator.LoadedRomPath)
-            : "No ROM loaded";
-
-        FpsText.Text = $"{_lastFps:0.0} FPS";
-        RendererText.Text = _videoSettings.Renderer == VideoRendererKind.OpenGl ? "OpenGL" : "Software";
-        MidiDeviceText.Text = GetMidiFooterText();
-        OsText.Text = OperatingSystemText;
-        VersionText.Text = ApplicationVersionText;
+        _viewModel.Apply(new MainWindowViewState(
+            _emulator.HasRomLoaded,
+            _emulator.IsPaused,
+            _emulator.IsStopped,
+            _emulator.LoadedRomPath,
+            _lastFps,
+            GetMidiFooterText(),
+            _videoSettings.Renderer,
+            audioSettings.MasterVolumePercent,
+            _statusMessage,
+            WindowState == WindowState.FullScreen));
 
         _suppressFooterVolumeEvents = true;
         try
         {
-            FooterVolumeSlider.Value = audioSettings.MasterVolumePercent;
+            FooterVolumeSlider.Value = _viewModel.VolumePercent;
         }
         finally
         {
             _suppressFooterVolumeEvents = false;
         }
-
-        VolumeText.Text = $"{audioSettings.MasterVolumePercent}%";
     }
 
     private string GetMidiFooterText()
@@ -517,6 +493,11 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void ApplyVideoRenderer()
     {
+        if (_isClosing)
+        {
+            return;
+        }
+
         var useOpenGl = _videoSettings.Renderer == VideoRendererKind.OpenGl;
         GameImage.IsVisible = !useOpenGl;
         OpenGlGameView.IsVisible = useOpenGl;
@@ -536,7 +517,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             UploadSoftwareFrameFromScratch();
         }
 
-        RefreshFooterDetails();
+        RefreshViewModel();
     }
 
     private void CopyLatestFrameToSoftwareScratch()
@@ -559,7 +540,7 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
     private void OpenGlGameView_OnRendererFailed(string message)
     {
-        if (_videoSettings.Renderer != VideoRendererKind.OpenGl)
+        if (_isClosing || _videoSettings.Renderer != VideoRendererKind.OpenGl)
         {
             return;
         }
@@ -605,14 +586,15 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
         if (settings.MasterVolumePercent == volumePercent)
         {
-            RefreshFooterDetails();
+            RefreshViewModel();
             return;
         }
 
         settings.MasterVolumePercent = volumePercent;
         if (_emulator.TryApplyAudioSettings(settings, out var error))
         {
-            RefreshFooterDetails();
+            _settingsWindow?.RefreshAudioSettings(_emulator.GetAudioSettingsSnapshot());
+            RefreshViewModel();
             return;
         }
 
@@ -654,11 +636,6 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
 
         IsMenuVisible = !isFullscreen;
 
-        if (FullscreenMenuItem is not null)
-        {
-            FullscreenMenuItem.Header = isFullscreen ? "Exit Fullscreen" : "Enter Fullscreen";
-        }
-
         if (RootLayoutGrid is not null)
         {
             RootLayoutGrid.Margin = isFullscreen ? FullscreenRootMargin : WindowedRootMargin;
@@ -680,6 +657,58 @@ public partial class MainWindow : ShadWindow, IVideoOutputSettingsHost
             GameViewport.Padding = isFullscreen ? FullscreenGameViewportPadding : WindowedGameViewportPadding;
             GameViewport.CornerRadius = isFullscreen ? FullscreenCornerRadius : WindowedGameViewportCornerRadius;
             GameViewport.BorderThickness = isFullscreen ? FullscreenBorderThickness : WindowedBorderThickness;
+        }
+
+        RefreshViewModel();
+    }
+
+    private void CloseSettingsWindow(bool prepareForShutdown)
+    {
+        if (_settingsWindow is null)
+        {
+            return;
+        }
+
+        _settingsWindow.MasterVolumePreviewChanged -= SettingsWindow_OnMasterVolumePreviewChanged;
+        _settingsWindow.Closed -= SettingsWindow_OnClosed;
+        if (prepareForShutdown)
+        {
+            _settingsWindow.PrepareForShutdown();
+        }
+
+        _settingsWindow.Close();
+        _settingsWindow = null;
+    }
+
+    private void SettingsWindow_OnClosed(object? sender, EventArgs e)
+    {
+        if (sender is SettingsWindow settingsWindow && ReferenceEquals(_settingsWindow, settingsWindow))
+        {
+            settingsWindow.MasterVolumePreviewChanged -= SettingsWindow_OnMasterVolumePreviewChanged;
+            settingsWindow.Closed -= SettingsWindow_OnClosed;
+            _settingsWindow = null;
+        }
+
+        CaptureGameInput();
+    }
+
+    private void SettingsWindow_OnMasterVolumePreviewChanged(int volumePercent)
+    {
+        if (_isClosing)
+        {
+            return;
+        }
+
+        _viewModel.SetPreviewVolume(volumePercent);
+
+        _suppressFooterVolumeEvents = true;
+        try
+        {
+            FooterVolumeSlider.Value = Math.Clamp(volumePercent, 0, 200);
+        }
+        finally
+        {
+            _suppressFooterVolumeEvents = false;
         }
     }
 

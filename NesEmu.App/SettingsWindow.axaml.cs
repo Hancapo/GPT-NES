@@ -12,6 +12,8 @@ namespace NesEmu.App;
 
 public partial class SettingsWindow : ShadWindow
 {
+    public event Action<int>? MasterVolumePreviewChanged;
+
     private enum SettingsSection
     {
         Video,
@@ -34,7 +36,6 @@ public partial class SettingsWindow : ShadWindow
     private string? _pendingKeyboardBindingAction;
     private string? _pendingControllerBindingAction;
     private SettingsSection _activeSection = SettingsSection.Audio;
-    private bool _allowClose;
     private bool _backgroundTimersActive;
     private bool _suppressEvents = true;
 
@@ -129,7 +130,6 @@ public partial class SettingsWindow : ShadWindow
 
     public void PrepareForShutdown()
     {
-        _allowClose = true;
         SetBackgroundTimersActive(false);
     }
 
@@ -196,6 +196,19 @@ public partial class SettingsWindow : ShadWindow
         try
         {
             LoadVideoSettings(settings);
+        }
+        finally
+        {
+            _suppressEvents = false;
+        }
+    }
+
+    public void RefreshAudioSettings(AudioOutputSettings settings)
+    {
+        _suppressEvents = true;
+        try
+        {
+            LoadAudioSettings(settings);
         }
         finally
         {
@@ -323,6 +336,12 @@ public partial class SettingsWindow : ShadWindow
     private void AudioSlider_OnValueChanged(object? sender, RangeBaseValueChangedEventArgs e)
     {
         UpdateAudioLabels();
+
+        if (!_suppressEvents && ReferenceEquals(sender, AudioVolumeSlider))
+        {
+            MasterVolumePreviewChanged?.Invoke(ReadPercent(AudioVolumeSlider));
+        }
+
         ScheduleAudioSettingsApply();
     }
 
@@ -452,18 +471,10 @@ public partial class SettingsWindow : ShadWindow
 
     private void SettingsWindow_OnClosing(object? sender, WindowClosingEventArgs e)
     {
-        if (_allowClose)
-        {
-            return;
-        }
-
-        e.Cancel = true;
         CancelPendingBindingCapture();
         SetBackgroundTimersActive(false);
-        Hide();
-        Owner?.Activate();
         _statusSink?.Invoke("Settings closed.");
-        AppLogger.Info($"Settings window hidden for reuse. {AppLogger.GetProcessResourceSummary()}");
+        AppLogger.Info($"Settings window closed. {AppLogger.GetProcessResourceSummary()}");
     }
 
     private void SettingsWindow_KeyDown(object? sender, KeyEventArgs e)

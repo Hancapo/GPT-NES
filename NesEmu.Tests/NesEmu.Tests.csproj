@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\NesEmu.App\NesEmu.App.csproj" />
     <ProjectReference Include="..\NesEmu.Core\NesEmu.Core.csproj" />
   </ItemGroup>
 

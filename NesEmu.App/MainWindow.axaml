@@ -10,7 +10,7 @@
                Height="900"
                MinWidth="980"
                MinHeight="720"
-               Title="NesEmu"
+               Title="{Binding WindowTitle}"
                TitleFontWeight="SemiBold"
                IsMenuVisible="True"
                SaveWindowState="True"
@@ -90,13 +90,22 @@
         <MenuItem Header="Exit" Click="ExitMenuItem_OnClick" />
       </MenuItem>
       <MenuItem Header="Emulation">
-        <MenuItem x:Name="PauseMenuItem" Header="Pause" Click="PauseButton_OnClick" />
-        <MenuItem x:Name="StopMenuItem" Header="Stop" Click="StopButton_OnClick" />
-        <MenuItem x:Name="ResetMenuItem" Header="Reset" Click="ResetButton_OnClick" />
+        <MenuItem x:Name="PauseMenuItem"
+                  Header="{Binding PauseMenuHeader}"
+                  IsEnabled="{Binding TransportEnabled}"
+                  Click="PauseButton_OnClick" />
+        <MenuItem x:Name="StopMenuItem"
+                  Header="Stop"
+                  IsEnabled="{Binding StopEnabled}"
+                  Click="StopButton_OnClick" />
+        <MenuItem x:Name="ResetMenuItem"
+                  Header="Reset"
+                  IsEnabled="{Binding ResetEnabled}"
+                  Click="ResetButton_OnClick" />
       </MenuItem>
       <MenuItem Header="View">
         <MenuItem x:Name="FullscreenMenuItem"
-                  Header="Enter Fullscreen"
+                  Header="{Binding FullscreenMenuHeader}"
                   Click="FullscreenMenuItem_OnClick" />
       </MenuItem>
       <MenuItem Header="Tools">
@@ -157,6 +166,7 @@
             </Viewbox>
 
             <Border x:Name="OverlayPanel"
+                    IsVisible="{Binding OverlayVisible}"
                     Width="336"
                     Padding="20"
                     HorizontalAlignment="Center"
@@ -184,14 +194,15 @@
                            FontSize="24"
                            FontWeight="SemiBold"
                            HorizontalAlignment="Center"
-                           Text="NesEmu" />
+                           Text="{Binding OverlayTitle}" />
                 <TextBlock x:Name="OverlayBodyText"
                            FontSize="14"
                            Opacity="0.74"
                            TextAlignment="Center"
                            TextWrapping="Wrap"
-                           Text="Open a NES ROM to get started." />
+                           Text="{Binding OverlayBody}" />
                 <Button x:Name="OverlayOpenButton"
+                        IsVisible="{Binding OverlayOpenButtonVisible}"
                         Classes="Primary"
                         MinWidth="150"
                         HorizontalAlignment="Center"
@@ -225,7 +236,7 @@
               <TextBlock Classes="footer-label" Text="ROM" />
               <TextBlock x:Name="RomText"
                          Classes="footer-value"
-                         Text="No ROM loaded" />
+                         Text="{Binding RomText}" />
             </StackPanel>
           </Grid>
 
@@ -242,7 +253,7 @@
               <TextBlock Classes="footer-label" Text="FPS" />
               <TextBlock x:Name="FpsText"
                          Classes="footer-value"
-                         Text="0.0 FPS" />
+                         Text="{Binding FpsText}" />
             </StackPanel>
           </Grid>
 
@@ -259,7 +270,7 @@
               <TextBlock Classes="footer-label" Text="MIDI OUTPUT" />
               <TextBlock x:Name="MidiDeviceText"
                          Classes="footer-value"
-                         Text="Disabled" />
+                         Text="{Binding MidiDeviceText}" />
             </StackPanel>
           </Grid>
 
@@ -276,7 +287,7 @@
               <TextBlock Classes="footer-label" Text="RENDERER" />
               <TextBlock x:Name="RendererText"
                          Classes="footer-value"
-                         Text="Software" />
+                         Text="{Binding RendererText}" />
             </StackPanel>
           </Grid>
 
@@ -303,7 +314,7 @@
                            VerticalAlignment="Center"
                            FontWeight="SemiBold"
                            TextAlignment="Right"
-                           Text="100%" />
+                           Text="{Binding VolumeText}" />
               </Grid>
             </StackPanel>
           </Grid>
@@ -326,7 +337,7 @@
               <TextBlock x:Name="OsText"
                          Classes="footer-value"
                          Width="118"
-                         Text="Windows x64" />
+                         Text="{Binding OsText}" />
             </StackPanel>
           </Grid>
 
@@ -343,14 +354,14 @@
               <TextBlock x:Name="VersionText"
                          Classes="footer-value"
                          Width="96"
-                         Text="v1.0.0" />
+                         Text="{Binding VersionText}" />
             </StackPanel>
           </Grid>
         </StackPanel>
 
         <TextBlock x:Name="StatusText"
                    IsVisible="False"
-                   Text="Ready." />
+                   Text="{Binding StatusText}" />
       </Grid>
     </Border>
   </Grid>
