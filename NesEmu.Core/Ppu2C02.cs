@@ -53,6 +53,7 @@ public sealed class Ppu2C02
     private bool _suppressVBlankForFrame;
     private bool _forceSpriteXToZeroOnNextScanline;
     private byte _oamCorruptionRow;
+    private long _ppuCycleCount;
 
     public Ppu2C02(CartridgeImage cartridge)
     {
@@ -95,6 +96,7 @@ public sealed class Ppu2C02
         _suppressVBlankForFrame = false;
         _forceSpriteXToZeroOnNextScanline = false;
         _oamCorruptionRow = 0;
+        _ppuCycleCount = 0;
         Array.Clear(_oam);
         Array.Clear(_vram);
         Array.Clear(_paletteRam);
@@ -286,12 +288,14 @@ public sealed class Ppu2C02
         }
 
         AdvanceCounters();
+        NotifyCartridgeCpuClock();
     }
 
     private void AdvanceCounters()
     {
         if (_scanline == 261 && _cycle == 339 && _oddFrame && IsRenderingEnabled)
         {
+            _ppuCycleCount++;
             _cycle = 0;
             _scanline = 0;
             _oddFrame = false;
@@ -300,6 +304,7 @@ public sealed class Ppu2C02
             return;
         }
 
+        _ppuCycleCount++;
         _cycle++;
 
         if (_cycle > 340)
@@ -598,7 +603,7 @@ public sealed class Ppu2C02
     private void ShiftBackgroundRegisters()
     {
         _backgroundPatternLow <<= 1;
-        _backgroundPatternHigh = (ushort)((_backgroundPatternHigh << 1) | 0x0001);
+        _backgroundPatternHigh <<= 1;
         _backgroundAttributeLow <<= 1;
         _backgroundAttributeHigh <<= 1;
     }
@@ -735,7 +740,7 @@ public sealed class Ppu2C02
                 }
 
                 QueueNextSprite(candidate, candidateIsSpriteZero, targetScanline);
-                address = IsSpriteEvaluationValueInRange(value, targetScanline, spriteHeight)
+                address = IsSpriteEvaluationValueInRange(candidate[0], targetScanline, spriteHeight)
                     ? address
                     : (byte)(address & 0xFC);
                 copyByteIndex = 0;
@@ -943,20 +948,18 @@ public sealed class Ppu2C02
 
         if (address < 0x2000)
         {
+            _cartridge.OnPpuAddressAccess(address, _ppuCycleCount);
             value = _cartridge.PpuRead(address);
-            _cartridge.OnPpuAddressAccess(address);
             return value;
         }
 
         if (address < 0x3F00)
         {
             value = _vram[MirrorNametableAddress(address)];
-            _cartridge.OnPpuAddressAccess(address);
             return value;
         }
 
         value = _paletteRam[MirrorPaletteAddress(address)];
-        _cartridge.OnPpuAddressAccess(address);
         return value;
     }
 
@@ -966,20 +969,18 @@ public sealed class Ppu2C02
 
         if (address < 0x2000)
         {
+            _cartridge.OnPpuAddressAccess(address, _ppuCycleCount);
             _cartridge.PpuWrite(address, value);
-            _cartridge.OnPpuAddressAccess(address);
             return;
         }
 
         if (address < 0x3F00)
         {
             _vram[MirrorNametableAddress(address)] = value;
-            _cartridge.OnPpuAddressAccess(address);
             return;
         }
 
         _paletteRam[MirrorPaletteAddress(address)] = (byte)(value & 0x3F);
-        _cartridge.OnPpuAddressAccess(address);
     }
 
     private int MirrorNametableAddress(ushort address)
@@ -1080,6 +1081,14 @@ public sealed class Ppu2C02
         }
 
         _nmiOutput = output;
+    }
+
+    private void NotifyCartridgeCpuClock()
+    {
+        if ((_ppuCycleCount % 3) == 0)
+        {
+            _cartridge.OnCpuClock();
+        }
     }
 
     private bool IsRenderingEnabled => (_mask & 0x18) != 0;

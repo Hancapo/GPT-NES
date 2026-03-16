@@ -103,7 +103,7 @@ public sealed class Mapper010 : Mapper
         WriteChr4(_latch1Fe ? _chrFe1 : _chrFd1, address - 0x1000, value);
     }
 
-    public override void OnPpuAddressAccess(ushort address)
+    public override void OnPpuAddressAccess(ushort address, long ppuCycle = 0)
     {
         switch (address)
         {

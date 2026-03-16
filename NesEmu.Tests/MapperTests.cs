@@ -84,6 +84,45 @@ public sealed class MapperTests
     }
 
     [Fact]
+    public void Mapper004_MirroringWritesUseMmc3Semantics()
+    {
+        var mapper = new Mapper004(CreatePrg8Banks(8), CreateChr1Banks(8), CreatePrgRam(), MirroringMode.Horizontal, chrWritable: false);
+
+        mapper.CpuWrite(0xA000, 0x00);
+        Assert.Equal(MirroringMode.Vertical, mapper.Mirroring);
+
+        mapper.CpuWrite(0xA000, 0x01);
+        Assert.Equal(MirroringMode.Horizontal, mapper.Mirroring);
+    }
+
+    [Fact]
+    public void Mapper004_RequiresThreeCpuClockEdgesWithA12LowBeforeReclockingIrq()
+    {
+        var mapper = new Mapper004(CreatePrg8Banks(8), CreateChr1Banks(8), CreatePrgRam(), MirroringMode.Horizontal, chrWritable: false);
+        mapper.Reset();
+
+        mapper.OnPpuAddressAccess(0x1000, 0);
+        mapper.OnCpuClock();
+
+        mapper.CpuWrite(0xC000, 0x00);
+        mapper.CpuWrite(0xC001, 0x00);
+        mapper.CpuWrite(0xE001, 0x00);
+
+        mapper.OnPpuAddressAccess(0x0FFF, 1);
+        mapper.OnCpuClock();
+        mapper.OnCpuClock();
+        mapper.OnPpuAddressAccess(0x1000, 6);
+        Assert.False(mapper.IrqPending);
+
+        mapper.OnPpuAddressAccess(0x0FFF, 12);
+        mapper.OnCpuClock();
+        mapper.OnCpuClock();
+        mapper.OnCpuClock();
+        mapper.OnPpuAddressAccess(0x1000, 20);
+        Assert.True(mapper.IrqPending);
+    }
+
+    [Fact]
     public void Mapper009_LatchesChrBanksAfterTriggerReads()
     {
         var mapper = new Mapper009(CreatePrg8Banks(8), CreateChr4Banks(8), CreatePrgRam(), MirroringMode.Vertical, chrWritable: false);
@@ -241,12 +280,40 @@ public sealed class MapperTests
         }
     }
 
+    [Fact]
+    public void Ppu_Mapper004MirroringWriteSelectsDistinctLeftAndRightNametables()
+    {
+        var romPath = CreateTestRom(mapperId: 4, prgBanks: 8, chrBanks: 8, fourScreen: false);
+        try
+        {
+            var cartridge = CartridgeImage.Load(romPath);
+            var ppu = new Ppu2C02(cartridge);
+
+            cartridge.CpuWrite(0xA000, 0x00);
+
+            WriteVram(ppu, 0x2000, 0x11);
+            WriteVram(ppu, 0x2400, 0x22);
+            WriteVram(ppu, 0x2800, 0x33);
+            WriteVram(ppu, 0x2C00, 0x44);
+
+            Assert.Equal(0x33, ReadVram(ppu, 0x2000));
+            Assert.Equal(0x44, ReadVram(ppu, 0x2400));
+            Assert.Equal(0x33, ReadVram(ppu, 0x2800));
+            Assert.Equal(0x44, ReadVram(ppu, 0x2C00));
+        }
+        finally
+        {
+            File.Delete(romPath);
+        }
+    }
+
     private static void ClockMmc3Scanline(Mapper004 mapper)
     {
-        mapper.OnPpuAddressAccess(0x0FFF);
-        mapper.OnPpuAddressAccess(0x0FFF);
-        mapper.OnPpuAddressAccess(0x0FFF);
-        mapper.OnPpuAddressAccess(0x1000);
+        mapper.OnPpuAddressAccess(0x0FFF, 0);
+        mapper.OnCpuClock();
+        mapper.OnCpuClock();
+        mapper.OnCpuClock();
+        mapper.OnPpuAddressAccess(0x1000, 12);
     }
 
     private static void WriteVram(Ppu2C02 ppu, ushort address, byte value)

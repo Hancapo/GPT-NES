@@ -9,7 +9,7 @@ public sealed class Mapper004 : Mapper
     private byte _bankSelect;
     private byte _irqLatch;
     private byte _irqCounter;
-    private int _a12LowAccesses;
+    private byte _a12LowM2Edges;
     private bool _prgRamEnabled = true;
     private bool _prgRamWriteEnabled = true;
     private bool _irqReloadRequested;
@@ -35,7 +35,7 @@ public sealed class Mapper004 : Mapper
         _bankSelect = 0;
         _irqLatch = 0;
         _irqCounter = 0;
-        _a12LowAccesses = 0;
+        _a12LowM2Edges = 3;
         _prgRamEnabled = true;
         _prgRamWriteEnabled = true;
         _irqReloadRequested = false;
@@ -102,7 +102,7 @@ public sealed class Mapper004 : Mapper
                 {
                     if (_hardwiredMirroring != MirroringMode.FourScreen)
                     {
-                        _mirroring = (value & 0x01) != 0 ? MirroringMode.Vertical : MirroringMode.Horizontal;
+                        _mirroring = (value & 0x01) != 0 ? MirroringMode.Horizontal : MirroringMode.Vertical;
                     }
                 }
                 else
@@ -170,25 +170,40 @@ public sealed class Mapper004 : Mapper
         }
     }
 
-    public override void OnPpuAddressAccess(ushort address)
+    public override void OnPpuAddressAccess(ushort address, long ppuCycle = 0)
     {
         var a12High = (address & 0x1000) != 0;
         if (!a12High)
         {
-            _a12LowAccesses++;
             _lastA12High = false;
             return;
         }
 
-        if (_lastA12High || _a12LowAccesses < 3)
+        if (_lastA12High)
         {
             _lastA12High = true;
             return;
         }
 
         _lastA12High = true;
-        _a12LowAccesses = 0;
-        ClockIrqCounter();
+        if (_a12LowM2Edges >= 3)
+        {
+            ClockIrqCounter();
+        }
+    }
+
+    public override void OnCpuClock()
+    {
+        if (_lastA12High)
+        {
+            _a12LowM2Edges = 0;
+            return;
+        }
+
+        if (_a12LowM2Edges < 3)
+        {
+            _a12LowM2Edges++;
+        }
     }
 
     private byte ReadChrModeZero(ushort address)

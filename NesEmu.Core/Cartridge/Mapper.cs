@@ -31,7 +31,11 @@ public abstract class Mapper
     {
     }
 
-    public virtual void OnPpuAddressAccess(ushort address)
+    public virtual void OnPpuAddressAccess(ushort address, long ppuCycle = 0)
+    {
+    }
+
+    public virtual void OnCpuClock()
     {
     }
 

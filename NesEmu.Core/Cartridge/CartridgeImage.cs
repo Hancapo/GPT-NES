@@ -142,7 +142,9 @@ public sealed class CartridgeImage
 
     public void PpuWrite(ushort address, byte value) => _mapper.PpuWrite(address, value);
 
-    public void OnPpuAddressAccess(ushort address) => _mapper.OnPpuAddressAccess(address);
+    public void OnPpuAddressAccess(ushort address, long ppuCycle = 0) => _mapper.OnPpuAddressAccess(address, ppuCycle);
+
+    public void OnCpuClock() => _mapper.OnCpuClock();
 
     public void Reset() => _mapper.Reset();
 
