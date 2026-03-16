@@ -14,36 +14,21 @@ public sealed record AudioBackendOption(AudioBackendKind Backend, string Display
 public static class AudioBackendCatalog
 {
     public static IReadOnlyList<AudioBackendOption> Options { get; } =
-        OperatingSystem.IsLinux()
-            ?
-            [
-                new(
-                    AudioBackendKind.Sdl,
-                    "SDL",
-                    "Cross-platform audio backend recommended for Linux builds."),
-                new(
-                    AudioBackendKind.OpenAl,
-                    "OpenAL",
-                    "Cross-platform playback backend kept as an alternative option.")
-            ]
-            :
-            [
-                new(
-                    AudioBackendKind.OpenAl,
-                    "OpenAL",
-                    "Cross-platform playback backend used by the emulator audio output."),
-                new(
-                    AudioBackendKind.Sdl,
-                    "SDL",
-                    "Cross-platform audio backend available as an alternative option.")
-            ];
+    [
+        new(
+            AudioBackendKind.Sdl,
+            "SDL",
+            "Default audio backend. Most reliable option for normal desktop builds."),
+        new(
+            AudioBackendKind.OpenAl,
+            "OpenAL",
+            "Alternative backend. Use only if it behaves correctly on the target machine.")
+    ];
 }
 
 public sealed class AudioOutputSettings
 {
-    public AudioBackendKind Backend { get; set; } = OperatingSystem.IsLinux()
-        ? AudioBackendKind.Sdl
-        : AudioBackendKind.OpenAl;
+    public AudioBackendKind Backend { get; set; } = AudioBackendKind.Sdl;
 
     public int OutputLatencyMilliseconds { get; set; } = 60;
 
@@ -53,9 +38,7 @@ public sealed class AudioOutputSettings
     {
         return new AudioOutputSettings
         {
-            Backend = OperatingSystem.IsLinux()
-                ? AudioBackendKind.Sdl
-                : AudioBackendKind.OpenAl
+            Backend = AudioBackendKind.Sdl
         };
     }
 

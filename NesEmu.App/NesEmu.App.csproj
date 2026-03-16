@@ -21,6 +21,7 @@
     <PackageReference Include="RtMidi.Core" Version="1.0.53" GeneratePathProperty="true" />
     <PackageReference Include="ShadUI" Version="0.1.6" />
     <PackageReference Include="Silk.NET.OpenAL" Version="2.23.0" />
+    <PackageReference Include="Silk.NET.OpenAL.Soft.Native" Version="1.23.1" GeneratePathProperty="true" />
     <PackageReference Include="Silk.NET.OpenGL" Version="2.23.0" />
     <PackageReference Include="Silk.NET.SDL" Version="2.23.0" />
   </ItemGroup>
@@ -28,6 +29,22 @@
   <ItemGroup>
     <None Include="$(PkgRtMidi_Core)\build\librtmidi.so">
       <Link>librtmidi.so</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' == '' and '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\win-x64\native\soft_oal.dll">
+      <Link>OpenAL32.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <ItemGroup Condition="$([System.String]::Copy('$(RuntimeIdentifier)').StartsWith('win'))">
+    <None Include="$(PkgSilk_NET_OpenAL_Soft_Native)\runtimes\win-x64\native\soft_oal.dll">
+      <Link>OpenAL32.dll</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>

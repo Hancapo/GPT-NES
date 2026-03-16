@@ -1,19 +1,24 @@
 # NesEmu
 
-NesEmu is a Nintendo Entertainment System emulator implemented in C# on top of a small, testable core and a desktop UI built with Avalonia.
+NesEmu is a Nintendo Entertainment System emulator written in C# with a small testable core and an Avalonia desktop frontend. The repository is also used as a practical sandbox for model-assisted engineering on timing-sensitive software.
 
-This repository is not intended to teach how the NES works. It exists primarily as an experimental vehicle for evaluating the limits of frontier models when they are asked to perform demanding engineering work on a complex, stateful system such as an emulator. It also serves as a practical environment for learning how to use the OpenAI Codex desktop application in a real codebase, under conditions that require sustained debugging, refactoring, verification, and iteration.
+## Repository Layout
 
-In short, the emulator is the workload. The main objective of the project is not pedagogical accuracy as a learning resource, but the use of a nontrivial software artifact to probe model capability, workflow quality, and tool-assisted development.
+- `NesEmu.Core`: CPU, PPU, APU, cartridge loading, mapper implementations, controller ports, and audio generation.
+- `NesEmu.App`: desktop UI for loading ROMs, controlling emulation, switching render/audio backends, remapping input, and routing APU activity to MIDI output.
+- `NesEmu.Tests`: xUnit coverage for core behavior, mappers, audio, MIDI, ROM smoke tests, and selected UI-facing logic.
+- `Samples/HelloWorld.nes`: sample ROM used by tests.
+- `Tools/BuildHelloWorldRom.py`: helper script for rebuilding the sample ROM.
 
-## Project Scope
+## Current Capabilities
 
-The repository currently contains:
-
-- `NesEmu.Core`: the emulation core, including CPU, PPU, APU, cartridge loading, mappers, controller state handling, and audio/video sample generation.
-- `NesEmu.App`: a desktop frontend for loading ROMs, running emulation, configuring audio, remapping controls, and optionally routing APU activity to MIDI output.
-- `NesEmu.Tests`: automated tests covering core behavior and selected regression scenarios.
-- `Samples`: small ROM assets used for testing and validation.
+- 6502 CPU emulation, including unofficial opcode handling.
+- PPU and APU emulation with 44.1 kHz audio output.
+- Supported mappers: `0`, `1`, `2`, `3`, `4`, `7`, `9`, `10`, `11`, `13`, `34`, `66`, `71`, `94`, `140`, and `180`.
+- Battery-backed PRG RAM persisted as `.sav` files next to the ROM when the cartridge supports it.
+- Keyboard and SDL gamepad input with remappable bindings.
+- Software rendering plus an optional OpenGL presentation path.
+- Optional MIDI conversion of APU channels with configurable instruments, levels, percussion routing, and sync offset.
 
 ## Requirements
 
@@ -22,58 +27,32 @@ The repository currently contains:
 
 Notes:
 
-- The application project targets `net10.0`.
-- The codebase currently uses preview language features.
-- Linux publishing is available on a best-effort basis for `linux-x64`, including Steam Deck packaging material under `packaging/steamdeck`.
-- The current non-Windows audio path is only a fallback path intended to keep the app running; it is not yet a proper Linux audio implementation.
-- MIDI output remains Windows-oriented, and native non-Windows controller handling is not yet implemented.
+- All projects target `net10.0`.
+- The codebase enables preview C# language features.
+- Linux x64 publishing is available on a best-effort basis.
 
-## Build
+## Build, Run, Test
 
 From the repository root:
 
 ```powershell
-dotnet build NesEmu.App/NesEmu.App.csproj -c Release
-```
-
-To build the full testable stack:
-
-```powershell
-dotnet build NesEmu.Tests/NesEmu.Tests.csproj
-```
-
-## Run
-
-To launch the desktop application:
-
-```powershell
+dotnet build NesEmu.slnx
 dotnet run --project NesEmu.App/NesEmu.App.csproj
-```
-
-You can also start the built executable directly after a Release build:
-
-`NesEmu.App/bin/Release/net10.0/NesEmu.App.exe`
-
-For a Linux x64 self-contained publish:
-
-```powershell
-dotnet publish NesEmu.App/NesEmu.App.csproj -c Release -r linux-x64 --self-contained true -o packaging/steamdeck/publish
-```
-
-## Test
-
-To run the automated test suite:
-
-```powershell
 dotnet test NesEmu.Tests/NesEmu.Tests.csproj
 ```
 
-## How To Use
+Optional Linux x64 publish:
+
+```powershell
+dotnet publish NesEmu.App/NesEmu.App.csproj -c Release -r linux-x64 --self-contained true
+```
+
+## Using The App
 
 1. Launch the application.
-2. Open a `.nes` ROM through `File > Open ROM...` or the initial overlay button.
-3. Use the transport controls to pause, stop, or reset the current session.
-4. Open `Settings` to adjust audio latency and volume, remap keyboard or controller input, or enable MIDI output.
+2. Open a `.nes` ROM through `File > Open ROM...`.
+3. Use the `Emulation` menu to pause, resume, stop, or reset the current session.
+4. Open `Settings` to switch video renderer, choose audio backend and latency, remap keyboard or controller input, or configure MIDI output.
 
 Default keyboard mapping:
 
@@ -83,36 +62,17 @@ Default keyboard mapping:
 - `Right Shift`: `Select`
 - Arrow keys: D-pad
 
-The application also supports gamepad input and optional MIDI output routing from the APU state.
+Useful shortcuts:
 
-## Steam Deck
+- `F11` or `Alt+Enter`: toggle fullscreen
+- `Esc`: exit fullscreen
 
-Steam Deck uses `linux-x64` (`x86_64`), not `linux-x86`. The repository includes a Flatpak manifest, desktop entry, AppStream metadata, and helper scripts in `packaging/steamdeck`.
+## Logs And Saves
 
-To prepare a Steam Deck build:
+- Logs are written under the platform local application-data directory, for example `%LocalAppData%\NesEmu\logs` on Windows.
+- Battery-backed cartridges save to a `.sav` file beside the ROM.
 
-1. Publish `NesEmu.App` for `linux-x64`.
-2. Build the Flatpak bundle from `packaging/steamdeck` on a Linux machine with `flatpak-builder`.
+## Legal Note
 
-See `packaging/steamdeck/README.md` for the packaging flow and current Linux caveats.
-
-## Repository Intent
-
-This project should be read as an engineering experiment, not as an instructional reference on NES architecture.
-
-Its main value is in questions such as:
-
-- How far can a frontier model go when it must reason about emulation timing, audio behavior, rendering correctness, and platform integration?
-- How effectively can the Codex app support long-running, iterative debugging across multiple subsystems?
-- What kinds of regressions, ambiguities, and hidden assumptions emerge when a model works on a codebase that is both technical and behavior-sensitive?
-
-That framing matters. If the goal is to learn the NES as hardware, there are better dedicated resources. If the goal is to evaluate model-assisted software engineering on a demanding target, this repository is designed for exactly that purpose.
-
-## Legal and Content Notes
-
-- Bring your own ROMs unless you are using the sample assets already present in the repository.
-- Ensure that any game ROMs you run are used in a manner consistent with the laws and rights applicable in your jurisdiction.
-
-## Status
-
-NesEmu is an active experimental project. Behavior, accuracy, UI, audio handling, and developer workflow may continue to change as the repository is used to test new ideas, debugging approaches, and Codex-driven development patterns.
+- `Samples/HelloWorld.nes` is included for testing.
+- If you use external ROMs, make sure you have the rights to do so in your jurisdiction.

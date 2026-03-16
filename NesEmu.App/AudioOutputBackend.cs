@@ -354,6 +354,11 @@ internal sealed class OpenAlAudioOutput : IAudioOutput
 
     public OpenAlAudioOutput(int sampleRate, TimeSpan bufferDuration, int latencyMilliseconds)
     {
+        if (!OpenAlRuntimeProbe.IsRuntimeAvailable())
+        {
+            throw new InvalidOperationException(OpenAlRuntimeProbe.GetMissingRuntimeMessage());
+        }
+
         _sampleRate = sampleRate;
         _chunkSampleCount = ComputeChunkSampleCount(sampleRate, latencyMilliseconds);
         _renderScratch = new float[_chunkSampleCount];
@@ -362,7 +367,7 @@ internal sealed class OpenAlAudioOutput : IAudioOutput
         _context = new AudioContext();
         _context.MakeCurrent();
         EnsureContextProcessing();
-        _al = AL.GetApi(soft: true);
+        _al = AL.GetApi();
         _source = _al.GenSource();
         _bufferIds = _al.GenBuffers(BufferCount);
 
